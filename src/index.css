@@ -269,9 +269,46 @@ button, input, select, textarea {
 
 .btn-icon.active {
   background: var(--primary-light);
-  color: var(--primary);
   border-color: var(--primary);
+  color: var(--primary);
 }
+
+/* ==========================================================================
+   SIDEBAR TREE GUIDE CONNECTOR LINES & ULTRA-PROFESSIONAL FOLDER UI
+   ========================================================================== */
+.folder-children-container {
+  position: relative;
+  margin-left: 16px;
+  border-left: 1.5px dashed var(--border-color);
+  padding-left: 4px;
+  transition: border-color 0.2s ease;
+}
+.folder-children-container:hover {
+  border-left-color: var(--primary);
+}
+.tree-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-bottom: 2px;
+  position: relative;
+}
+.tree-item-row:hover {
+  background: var(--bg-surface-elevated);
+  transform: translateX(2px);
+}
+.tree-item-row.active {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: inset 3.5px 0 0 var(--primary);
+}
+
 
 /* Search & Filter Pills */
 .search-box {
