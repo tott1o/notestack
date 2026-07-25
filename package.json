@@ -1,0 +1,62 @@
+{
+  "name": "notestack",
+  "private": true,
+  "version": "1.0.0",
+  "description": "College Academic Note and Reference Manager",
+  "author": "College Student NoteStack",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "electron:start": "electron .",
+    "electron:dev": "concurrently \"cross-env BROWSER=none npm run dev\" \"electron .\"",
+    "dist": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.notestack.app",
+    "productName": "NoteStack",
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist_app"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "katex": "^0.18.1",
+    "lucide-react": "^1.26.0",
+    "mammoth": "^1.12.0",
+    "marked": "^18.0.7",
+    "pdfjs-dist": "^6.1.200",
+    "prismjs": "^1.30.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.0.4",
+    "@types/katex": "^0.16.8",
+    "@types/node": "^24.13.2",
+    "@types/prismjs": "^1.26.6",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "idb-keyval": "^6.3.0",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1"
+  }
+}
