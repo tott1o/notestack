@@ -127,11 +127,7 @@ export function App() {
   const handleSelectFile = async (file: FileItem) => {
     const loadedFile = await ensureFileContentLoaded(file);
     setActiveFile(loadedFile);
-    if (loadedFile.type === 'md') {
-      setViewMode('split');
-    } else {
-      setViewMode('preview');
-    }
+    setViewMode('preview');
   };
 
   const handleContentChange = useCallback((newContent: string) => {
@@ -212,7 +208,7 @@ export function App() {
     });
 
     setActiveFile(newFile);
-    setViewMode(newFile.type === 'code' || newFile.type === 'csv' ? 'preview' : 'split');
+    setViewMode('preview');
   };
 
   const handleCreateFolderSubmit = async (folderName: string, parentFolderPath?: string) => {
