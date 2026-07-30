@@ -12,6 +12,7 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
   const fileKey = file.fullPath || file.id;
 
   const [csvText, setCsvText] = useState<string>(file.content || '');
+  const [loadAllRows, setLoadAllRows] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'grid' | 'raw'>(() => {
     const saved = getFileState(fileKey);
     return (saved.viewMode as 'grid' | 'raw') || 'grid';
@@ -29,6 +30,7 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
   useLayoutEffect(() => {
     setCsvText(file.content || '');
     setIsSaved(true);
+    setLoadAllRows(false);
 
     const saved = getFileState(fileKey);
     if (saved.searchQuery) setSearchQuery(saved.searchQuery);
@@ -52,7 +54,7 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
   const isLargeDataset = useMemo(() => {
     const size = file.size || (file.content ? file.content.length : 0);
     const lineCount = (file.content || csvText).split('\n').length;
-    return size > 300000 || lineCount > 2500;
+    return size > 500000 || lineCount > 5000;
   }, [file.size, file.content, csvText]);
 
   const handleOpenExternal = async () => {
@@ -73,23 +75,29 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
     saveTimeoutRef.current = setTimeout(() => setIsSaved(true), 600);
   };
 
-  // Safe parsing for CSV data grid (capped to 1,000 preview rows to prevent crashing)
+  // Safe parsing for CSV data grid with 100 row truncation when > 500 total rows
   const parsedGrid = useMemo(() => {
-    if (!csvText.trim()) return { headers: [], rows: [] };
+    if (!csvText.trim()) return { headers: [], rows: [], totalRowsCount: 0, isTruncated: false };
     try {
       const lines = csvText.trim().split('\n');
       const headers = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
-      const sampleLines = lines.slice(1);
-      const rows = sampleLines.map((line, rIndex) => {
+      const allSampleLines = lines.slice(1);
+      const totalRowsCount = allSampleLines.length;
+
+      // Rule: If total rows > 500, only load first 100 unless user explicitly clicks "Load All"
+      const isTruncated = totalRowsCount > 500 && !loadAllRows;
+      const displayLines = isTruncated ? allSampleLines.slice(0, 100) : allSampleLines;
+
+      const rows = displayLines.map((line, rIndex) => {
         const cells = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
         return { id: rIndex, cells };
       });
-      return { headers, rows };
+      return { headers, rows, totalRowsCount, isTruncated };
     } catch (err) {
       console.error("CSV Parsing Error:", err);
-      return { headers: [], rows: [] };
+      return { headers: [], rows: [], totalRowsCount: 0, isTruncated: false };
     }
-  }, [csvText]);
+  }, [csvText, loadAllRows]);
 
   // Filter rows by search query
   const filteredRows = useMemo(() => {
@@ -157,7 +165,7 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
         </div>
 
         {/* Search Bar in Grid View */}
-        {viewMode === 'grid' && !isLargeDataset && (
+        {viewMode === 'grid' && (
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-dim)' }} />
             <input
@@ -195,12 +203,28 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
         </div>
       </div>
 
-      {/* Large Dataset Banner Notice */}
+      {/* Truncation Notice Banner (When > 500 rows, loads first 100 rows) */}
+      {parsedGrid.isTruncated && viewMode === 'grid' && (
+        <div style={{ padding: '10px 20px', background: 'rgba(56, 189, 248, 0.12)', borderBottom: '1px solid rgba(56, 189, 248, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--accent-cyan)', fontSize: '0.84rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Database size={16} />
+            <span>⚡ Large dataset: Showing first 100 rows out of <strong>{parsedGrid.totalRowsCount}</strong> total rows for performance optimization.</span>
+          </div>
+          <button 
+            onClick={() => setLoadAllRows(true)}
+            style={{ padding: '4px 14px', background: 'var(--accent-cyan)', color: '#000', border: 'none', borderRadius: 'var(--radius-sm)', fontWeight: 700, cursor: 'pointer', fontSize: '0.78rem' }}
+          >
+            Load All {parsedGrid.totalRowsCount} Rows
+          </button>
+        </div>
+      )}
+
+      {/* Extremely Large Dataset Warning */}
       {isLargeDataset && (
         <div style={{ padding: '12px 20px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--accent-amber)', fontSize: '0.84rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <AlertCircle size={18} />
-            <span>Large CSV dataset detected. To prevent crashing or freezing, open directly in Excel or external data tool.</span>
+            <span>Extremely large CSV file detected. To edit smoothly without lag, open directly in Excel or external data tool.</span>
           </div>
           <button 
             className="btn-primary"

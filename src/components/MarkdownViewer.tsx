@@ -61,10 +61,13 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   const [fontSize, setFontSize] = useState<number>(16);
   const [showToc, setShowToc] = useState<boolean>(false);
   const [isFullWidth, setIsFullWidth] = useState<boolean>(false);
+  const [activeLine, setActiveLine] = useState<number>(1);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineGutterRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSyncScrolling = useRef<boolean>(false);
 
   const fileKey = file.fullPath || file.id;
 
@@ -84,10 +87,60 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     }
   }, [file.id, fileKey]);
 
-  const handleScrollSave = useCallback((e: React.UIEvent<HTMLElement>) => {
-    const scrollTop = e.currentTarget.scrollTop;
+  // Active line calculation
+  const updateActiveLine = useCallback(() => {
+    if (!textareaRef.current) return;
+    const cursorPos = textareaRef.current.selectionStart;
+    const textBeforeCursor = textareaRef.current.value.substring(0, cursorPos);
+    const lineNumber = textBeforeCursor.split('\n').length;
+    setActiveLine(lineNumber);
+  }, []);
+
+  // Proportional scroll synchronization between editor & preview
+  const handleEditorScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    const scrollTop = el.scrollTop;
+
+    // Sync line gutter scroll position
+    if (lineGutterRef.current) {
+      lineGutterRef.current.scrollTop = scrollTop;
+    }
+
     saveFileState(fileKey, { scrollTop });
-  }, [fileKey]);
+
+    // Sync preview scroll position proportionally in split mode
+    if (activeMode === 'split' && previewRef.current && !isSyncScrolling.current) {
+      isSyncScrolling.current = true;
+      const scrollRatio = scrollTop / (el.scrollHeight - el.clientHeight || 1);
+      const previewEl = previewRef.current;
+      previewEl.scrollTop = scrollRatio * (previewEl.scrollHeight - previewEl.clientHeight);
+      
+      requestAnimationFrame(() => {
+        isSyncScrolling.current = false;
+      });
+    }
+  };
+
+  const handlePreviewScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const previewEl = e.currentTarget;
+    const scrollTop = previewEl.scrollTop;
+
+    saveFileState(fileKey, { scrollTop });
+
+    if (activeMode === 'split' && textareaRef.current && !isSyncScrolling.current) {
+      isSyncScrolling.current = true;
+      const scrollRatio = scrollTop / (previewEl.scrollHeight - previewEl.clientHeight || 1);
+      const editorEl = textareaRef.current;
+      editorEl.scrollTop = scrollRatio * (editorEl.scrollHeight - editorEl.clientHeight);
+      if (lineGutterRef.current) {
+        lineGutterRef.current.scrollTop = editorEl.scrollTop;
+      }
+
+      requestAnimationFrame(() => {
+        isSyncScrolling.current = false;
+      });
+    }
+  };
 
   // Sync view mode when header bar viewMode prop changes
   useEffect(() => {
@@ -134,6 +187,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     const newContent = e.target.value;
     setContent(newContent);
     setIsSaved(false);
+    updateActiveLine();
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
@@ -143,7 +197,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     }, 600);
   };
 
-  const insertFormatting = (prefix: string, suffix: string = '') => {
+  const insertFormatting = useCallback((prefix: string, suffix: string = '') => {
     if (!textareaRef.current) return;
     const el = textareaRef.current;
     const start = el.selectionStart;
@@ -158,7 +212,176 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     setTimeout(() => {
       el.focus();
       el.setSelectionRange(start + prefix.length, start + prefix.length + (selected.length || 4));
+      updateActiveLine();
     }, 10);
+  }, [content, onContentChange, updateActiveLine]);
+
+  // Pro Editor Keydown Handlers (Auto-list continuation, Auto-pairs, Tab Indent, Shortcuts)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const key = e.key;
+
+    // 1. Keyboard Shortcuts (Ctrl+B, Ctrl+I, Ctrl+K, Ctrl+Shift+C, Ctrl+Shift+M)
+    if (e.ctrlKey || e.metaKey) {
+      if (key.toLowerCase() === 'b') {
+        e.preventDefault();
+        insertFormatting('**', '**');
+        return;
+      }
+      if (key.toLowerCase() === 'i') {
+        e.preventDefault();
+        insertFormatting('*', '*');
+        return;
+      }
+      if (key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const selected = content.substring(start, end) || 'link text';
+        const linkMd = `[${selected}](https://)`;
+        const newContent = content.substring(0, start) + linkMd + content.substring(end);
+        setContent(newContent);
+        onContentChange(newContent);
+        setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(start + selected.length + 3, start + selected.length + 11);
+        }, 10);
+        return;
+      }
+      if (e.shiftKey && key.toLowerCase() === 'c') {
+        e.preventDefault();
+        if (start !== end && content.substring(start, end).includes('\n')) {
+          insertFormatting('```\n', '\n```');
+        } else {
+          insertFormatting('`', '`');
+        }
+        return;
+      }
+      if (e.shiftKey && key.toLowerCase() === 'm') {
+        e.preventDefault();
+        insertFormatting('$$\n', '\n$$');
+        return;
+      }
+    }
+
+    // 2. Tab & Shift+Tab Line Indentation
+    if (key === 'Tab') {
+      e.preventDefault();
+      const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+      const lineEnd = content.indexOf('\n', end);
+      const effectiveEnd = lineEnd === -1 ? content.length : lineEnd;
+      const selectedLines = content.substring(lineStart, effectiveEnd).split('\n');
+
+      if (e.shiftKey) {
+        // Outdent lines
+        const unindented = selectedLines.map(l => l.startsWith('  ') ? l.substring(2) : l.replace(/^ /, '')).join('\n');
+        const newContent = content.substring(0, lineStart) + unindented + content.substring(effectiveEnd);
+        setContent(newContent);
+        onContentChange(newContent);
+      } else {
+        // Indent lines
+        const indented = selectedLines.map(l => '  ' + l).join('\n');
+        const newContent = content.substring(0, lineStart) + indented + content.substring(effectiveEnd);
+        setContent(newContent);
+        onContentChange(newContent);
+      }
+      return;
+    }
+
+    // 3. Auto-List Continuation on Enter
+    if (key === 'Enter') {
+      const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+      const currentLine = content.substring(lineStart, start);
+
+      // Task list item: - [ ] or - [x]
+      const taskMatch = currentLine.match(/^(\s*)-\s+\[[ x]\]\s*(.*)$/);
+      if (taskMatch) {
+        e.preventDefault();
+        const [, indent, itemText] = taskMatch;
+        if (itemText.trim() === '') {
+          // Exit empty list item
+          const newContent = content.substring(0, lineStart) + content.substring(start);
+          setContent(newContent);
+          onContentChange(newContent);
+        } else {
+          const insertPrefix = `\n${indent}- [ ] `;
+          const newContent = content.substring(0, start) + insertPrefix + content.substring(end);
+          setContent(newContent);
+          onContentChange(newContent);
+          setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + insertPrefix.length, start + insertPrefix.length);
+            updateActiveLine();
+          }, 10);
+        }
+        return;
+      }
+
+      // Unordered list item: - or * or +
+      const listMatch = currentLine.match(/^(\s*)[-*+]\s+(.*)$/);
+      if (listMatch) {
+        e.preventDefault();
+        const [, indent, itemText] = listMatch;
+        if (itemText.trim() === '') {
+          const newContent = content.substring(0, lineStart) + content.substring(start);
+          setContent(newContent);
+          onContentChange(newContent);
+        } else {
+          const insertPrefix = `\n${indent}- `;
+          const newContent = content.substring(0, start) + insertPrefix + content.substring(end);
+          setContent(newContent);
+          onContentChange(newContent);
+          setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + insertPrefix.length, start + insertPrefix.length);
+            updateActiveLine();
+          }, 10);
+        }
+        return;
+      }
+
+      // Numbered list item: 1. or 2.
+      const numMatch = currentLine.match(/^(\s*)(\d+)\.\s+(.*)$/);
+      if (numMatch) {
+        e.preventDefault();
+        const [, indent, numStr, itemText] = numMatch;
+        if (itemText.trim() === '') {
+          const newContent = content.substring(0, lineStart) + content.substring(start);
+          setContent(newContent);
+          onContentChange(newContent);
+        } else {
+          const nextNum = parseInt(numStr, 10) + 1;
+          const insertPrefix = `\n${indent}${nextNum}. `;
+          const newContent = content.substring(0, start) + insertPrefix + content.substring(end);
+          setContent(newContent);
+          onContentChange(newContent);
+          setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + insertPrefix.length, start + insertPrefix.length);
+            updateActiveLine();
+          }, 10);
+        }
+        return;
+      }
+    }
+
+    // 4. Auto-Closing Pair Characters
+    const autoPairs: Record<string, string> = {
+      '(': ')',
+      '[': ']',
+      '{': '}',
+      '"': '"',
+      '`': '`',
+      '$': '$'
+    };
+
+    if (autoPairs[key]) {
+      e.preventDefault();
+      insertFormatting(key, autoPairs[key]);
+      return;
+    }
   };
 
   const renderedHtml = useMemo(() => {
@@ -178,8 +401,12 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   }, [content]);
 
   const lineCount = useMemo(() => {
-    return content ? content.split('\n').length : 0;
+    return content ? content.split('\n').length : 1;
   }, [content]);
+
+  const lineNumbers = useMemo(() => {
+    return Array.from({ length: lineCount }, (_, i) => i + 1);
+  }, [lineCount]);
 
   const readingTimeMinutes = useMemo(() => {
     return calculateReadingTime(content);
@@ -229,8 +456,8 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
         {/* 2. Formatting Actions (Active in Edit or Split mode) */}
         {(activeMode === 'edit' || activeMode === 'split') && (
           <div className="toolbar-group formatting-group">
-            <button className="tool-btn" onClick={() => insertFormatting('**', '**')} title="Bold (**text**)"><Bold size={14} /></button>
-            <button className="tool-btn" onClick={() => insertFormatting('*', '*')} title="Italic (*text*)"><Italic size={14} /></button>
+            <button className="tool-btn" onClick={() => insertFormatting('**', '**')} title="Bold (Ctrl+B)"><Bold size={14} /></button>
+            <button className="tool-btn" onClick={() => insertFormatting('*', '*')} title="Italic (Ctrl+I)"><Italic size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('~~', '~~')} title="Strikethrough (~~text~~)"><Strikethrough size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('==', '==')} title="Highlight (==text==)"><Sparkles size={14} style={{ color: 'var(--accent-amber)' }} /></button>
             <span className="toolbar-sep" />
@@ -238,15 +465,15 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
             <button className="tool-btn" onClick={() => insertFormatting('## ')} title="Heading 2"><Heading2 size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('### ')} title="Heading 3"><Heading3 size={14} /></button>
             <span className="toolbar-sep" />
-            <button className="tool-btn" onClick={() => insertFormatting('$$\n', '\n$$')} title="Display Formula ($$ equation $$)"><span className="math-sym">∑</span></button>
-            <button className="tool-btn" onClick={() => insertFormatting('`', '`')} title="Inline Code (`code`)"><Code size={14} /></button>
+            <button className="tool-btn" onClick={() => insertFormatting('$$\n', '\n$$')} title="Display Formula (Ctrl+Shift+M)"><span className="math-sym">∑</span></button>
+            <button className="tool-btn" onClick={() => insertFormatting('`', '`')} title="Inline Code (Ctrl+Shift+C)"><Code size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('- ')} title="Bullet List"><List size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('1. ')} title="Numbered List"><ListOrdered size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('- [ ] ')} title="Task Checklist"><CheckSquare size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('> [!NOTE]\n> ')} title="Study Callout Card"><AlertCircle size={14} style={{ color: 'var(--accent-cyan)' }} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('> ')} title="Quote Block"><Quote size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('\n---\n')} title="Section Divider"><Minus size={14} /></button>
-            <button className="tool-btn" onClick={() => insertFormatting('[', '](url)')} title="Insert Link"><LinkIcon size={14} /></button>
+            <button className="tool-btn" onClick={() => insertFormatting('[', '](url)')} title="Insert Link (Ctrl+K)"><LinkIcon size={14} /></button>
           </div>
         )}
 
@@ -331,18 +558,35 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
           </aside>
         )}
 
-        {/* Markdown Source Textarea Pane */}
+        {/* Pro Code Editor Style Markdown Source Pane */}
         {(activeMode === 'edit' || activeMode === 'split') && (
-          <div className="editor-pane" style={{ borderRight: activeMode === 'split' ? '1px solid var(--border-color)' : 'none' }}>
-            <textarea
-              ref={textareaRef}
-              className="editor-textarea"
-              style={{ fontSize: `${fontSize}px` }}
-              value={content}
-              onChange={handleChange}
-              onScroll={handleScrollSave}
-              placeholder="Start writing notes in Markdown... (Supports math $$ formula $$, ==highlights==, callouts > [!NOTE], and code blocks)"
-            />
+          <div className="editor-pane" style={{ borderRight: activeMode === 'split' ? '1px solid var(--border-color)' : 'none', flex: 1, height: '100%' }}>
+            <div className="code-editor-body">
+              {/* Synchronized Line Numbers Column */}
+              <div 
+                ref={lineGutterRef} 
+                className="code-editor-line-numbers"
+                style={{ fontSize: `${fontSize}px`, overflowY: 'hidden' }}
+              >
+                {lineNumbers.map(num => (
+                  <div key={num}>{num}</div>
+                ))}
+              </div>
+
+              {/* Textarea Code Canvas */}
+              <textarea
+                ref={textareaRef}
+                className="code-editor-textarea"
+                style={{ fontSize: `${fontSize}px` }}
+                value={content}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                onKeyUp={updateActiveLine}
+                onClick={updateActiveLine}
+                onScroll={handleEditorScroll}
+                placeholder="// Start writing notes in Markdown... (Supports math $$ formula $$, ==highlights==, callouts > [!NOTE], and code blocks)"
+              />
+            </div>
           </div>
         )}
 
@@ -350,7 +594,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
         {(activeMode === 'preview' || activeMode === 'split') && (
           <div 
             ref={previewRef}
-            onScroll={handleScrollSave}
+            onScroll={handlePreviewScroll}
             className="preview-pane"
           >
             <div 
@@ -393,7 +637,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
           <span className="dot-sep">•</span>
           <span>{wordCount} words</span>
           <span className="dot-sep">•</span>
-          <span>{lineCount} lines</span>
+          <span>{lineCount} lines (Line {activeLine})</span>
           <span className="dot-sep">•</span>
           <span>{content.length} chars</span>
         </div>

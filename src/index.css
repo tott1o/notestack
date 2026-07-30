@@ -299,14 +299,24 @@ button, input, select, textarea {
   position: relative;
 }
 .tree-item-row:hover {
-  background: var(--bg-surface-elevated);
-  transform: translateX(2px);
+  background: rgba(255, 255, 255, 0.04);
 }
 .tree-item-row.active {
-  background: var(--primary-light);
-  color: var(--primary);
-  font-weight: 700;
-  box-shadow: inset 3.5px 0 0 var(--primary);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-main);
+  font-weight: 650;
+  border-radius: 6px;
+  position: relative;
+}
+.tree-item-row.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2.5px;
+  border-radius: 0 2px 2px 0;
+  background: var(--primary);
 }
 
 
@@ -859,7 +869,7 @@ button, input, select, textarea {
 .toc-level-1 .toc-dot { width: 7px; height: 7px; opacity: 0.85; }
 .toc-level-2 .toc-dot { opacity: 0.6; }
 
-/* ── Editor Pane ───────────────────────────────────────────────────────────── */
+/* ── Editor Pane & Pro Gutter ───────────────────────────────────────────────── */
 .editor-pane {
   flex: 1;
   display: flex;
@@ -867,11 +877,48 @@ button, input, select, textarea {
   background: var(--bg-main);
   overflow: hidden;
 }
+
+.pro-editor-container {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-main);
+  overflow: hidden;
+  position: relative;
+}
+
+.editor-gutter {
+  padding: 28px 12px 28px 16px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  user-select: none;
+  overflow-y: hidden;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.gutter-line {
+  padding: 0 4px;
+  border-radius: 3px;
+  transition: all 0.1s ease;
+}
+
+.gutter-line.active {
+  color: var(--primary);
+  font-weight: 700;
+  background: var(--primary-light);
+}
+
 .editor-textarea {
   flex: 1;
   width: 100%;
   height: 100%;
-  padding: 28px 36px;
+  padding: 28px 24px;
   border: none;
   outline: none;
   resize: none;
@@ -881,6 +928,8 @@ button, input, select, textarea {
   line-height: 1.7;
   box-sizing: border-box;
   overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 .editor-textarea::placeholder {
   color: var(--text-dim);
@@ -977,76 +1026,58 @@ button, input, select, textarea {
 .study-heading-section {
   position: relative;
   scroll-margin-top: 80px;
+  display: block;
 }
 
 .study-h1-section {
-  margin: 40px 0 20px 0;
-  padding: 16px 0 16px 20px;
+  margin: 36px 0 18px 0;
+  padding-bottom: 10px;
   border-bottom: 2px solid var(--border-highlight);
-}
-.study-h1-section .study-heading-accent {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 5px;
-  border-radius: 4px;
-  background: var(--primary);
 }
 .study-h1 {
   font-family: var(--font-heading);
-  font-size: 1.9rem;
+  font-size: 2.1rem;
   font-weight: 800;
   color: var(--text-main);
   margin: 0;
-  line-height: 1.3;
-  letter-spacing: -0.5px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
 .study-h2-section {
-  margin: 34px 0 16px 0;
-  padding: 14px 0 12px 18px;
-  border-bottom: 1px solid var(--border-color);
-}
-.study-h2-section .study-heading-accent {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 3px;
-  background: var(--accent-cyan);
+  margin: 30px 0 14px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--border-highlight);
 }
 .study-h2 {
   font-family: var(--font-heading);
-  font-size: 1.48rem;
+  font-size: 1.55rem;
   font-weight: 750;
   color: var(--text-main);
   margin: 0;
-  line-height: 1.35;
-  letter-spacing: -0.3px;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
 }
 
 .study-h3-section {
-  margin: 26px 0 12px 0;
-  padding: 10px 0 8px 16px;
-}
-.study-h3-section .study-heading-accent {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--accent-purple);
+  margin: 24px 0 10px 0;
 }
 .study-h3 {
   font-family: var(--font-heading);
-  font-size: 1.22rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-main);
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.35;
+}
+
+.solid-separator {
+  border: none;
+  height: 2.5px;
+  border-radius: 2px;
+  background: var(--border-highlight);
+  opacity: 1;
+  margin: 32px 0;
 }
 
 .study-h4-section { margin: 22px 0 10px 0; }
@@ -1195,11 +1226,20 @@ button, input, select, textarea {
   background: var(--bg-surface-elevated);
   border-bottom: 1px solid var(--border-color);
 }
-.code-terminal-left {
+.code-terminal-dots {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  margin-right: 10px;
 }
+.code-terminal-dots .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.dot-red { background: #ff5f56; }
+.dot-yellow { background: #ffbd2e; }
+.dot-green { background: #27c93f; }
 .code-terminal-icon {
   color: var(--primary);
 }
@@ -1722,6 +1762,88 @@ button, input, select, textarea {
   gap: 12px;
   z-index: 20;
   box-shadow: var(--shadow-lg);
+}
+
+/* Word Document Paper Sheet & Clean Typography */
+.docx-page-sheet {
+  width: 100%;
+  max-width: 820px;
+  min-height: 1050px;
+  padding: 56px 64px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.docx-page-number-header {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #0284c7;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.docx-rendered-content {
+  line-height: 1.75;
+  word-wrap: break-word;
+}
+.docx-rendered-content p {
+  margin: 0 0 14px;
+}
+.docx-rendered-content h1,
+.docx-rendered-content h2,
+.docx-rendered-content h3 {
+  color: inherit;
+  margin-top: 28px;
+  margin-bottom: 12px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+.docx-rendered-content h1 {
+  font-size: 1.8rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.docx-rendered-content h2 {
+  font-size: 1.4rem;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.docx-rendered-content h3 {
+  font-size: 1.18rem;
+}
+
+/* Word Document Tables - Fix Dark Hover Contrast Bug */
+.docx-rendered-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 0.92rem;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.docx-rendered-content th,
+.docx-rendered-content td {
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  text-align: left;
+}
+.docx-rendered-content th {
+  background: rgba(2, 132, 199, 0.08);
+  color: #0284c7;
+  font-weight: 700;
+}
+.docx-rendered-content tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}
+.docx-rendered-content tr:hover {
+  background: rgba(2, 132, 199, 0.08) !important;
 }
 
 /* Word Document Search Highlight */

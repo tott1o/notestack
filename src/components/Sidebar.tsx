@@ -272,7 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {file.type === 'csv' && <FileSpreadsheet size={15} style={{ color: '#34d399', flexShrink: 0 }} />}
           {file.type === 'other' && <File size={15} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />}
           
-          <span style={{ fontSize: '0.83rem', color: isActive ? 'var(--primary)' : 'var(--text-main)', fontWeight: isActive ? 800 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={file.name}>
+          <span style={{ fontSize: '0.83rem', color: isActive ? 'var(--text-main)' : 'var(--text-main)', fontWeight: isActive ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={file.name}>
             {file.name}
           </span>
         </div>
@@ -282,13 +282,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span 
             style={{ 
               fontSize: '0.62rem', 
-              fontWeight: 800, 
+              fontWeight: 700, 
               textTransform: 'uppercase', 
               letterSpacing: '0.04em',
               padding: '2px 6px', 
               borderRadius: 4,
-              background: isActive ? 'var(--primary)' : 'var(--bg-surface-elevated)',
-              color: isActive ? '#fff' : 'var(--text-dim)',
+              background: isActive ? 'rgba(99, 102, 241, 0.16)' : 'var(--bg-surface-elevated)',
+              color: isActive ? 'var(--primary)' : 'var(--text-dim)',
               border: '1px solid var(--border-color)'
             }}
           >
