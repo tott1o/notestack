@@ -11,7 +11,6 @@ import {
   Presentation,
   Calendar,
   Globe,
-  Maximize2,
   RotateCcw,
   Zap,
   Layers,
@@ -23,7 +22,11 @@ import {
   File,
   Image as ImageIcon,
   Video as VideoIcon,
-  Folder
+  Folder,
+  ZoomIn,
+  ZoomOut,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import type { FileItem, MainDirectory } from '../types';
 
@@ -54,6 +57,11 @@ interface GalaxyNode {
   orbitRadius: number;
   orbitAngle: number;
   orbitSpeed: number;
+  isDragged?: boolean;
+  isPinned?: boolean;
+  isMagnetLocked?: boolean;
+  hoverStartTimestamp?: number;
+  latchProgress?: number;
 }
 
 interface ConstellationLine {
@@ -64,7 +72,7 @@ interface ConstellationLine {
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   mainDir,
-  onSelectMainDirectory,
+  onSelectMainDirectory: _onSelectMainDirectory,
   onSelectFile,
   onCreateNewNote,
   onCreateFolder,
@@ -81,11 +89,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [hoveredNode, setHoveredNode] = useState<GalaxyNode | null>(null);
   const [autoRotate, setAutoRotate] = useState<boolean>(true);
   const [showLabels, setShowLabels] = useState<boolean>(true);
-  const [zoomScale, setZoomScale] = useState<number>(1.0);
+  const [zoomScale, setZoomScale] = useState<number>(0.85);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const isDraggingRef = useRef<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const mouseWorldPosRef = useRef<{ x: number; y: number } | null>(null);
 
   // Time-based Greeting & Current Date (Strictly No Emojis)
   const { greeting, currentDate } = useMemo(() => {
@@ -130,7 +139,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       else if (file.type === 'docx') docx++;
       else if (file.type === 'pptx') pptx++;
     }
-    return { md, code, csv, pdf, docx, pptx, fav, total: allFiles.length, folders: allFolders.length };
+    return { md, code, csv, pdf, docx, pptx, fav, favorites: fav, total: allFiles.length, folders: allFolders.length };
   }, [allFiles, allFolders]);
 
   const filteredFiles = useMemo(() => {
@@ -162,16 +171,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // Color mapping helper for file types in Galaxy Brain
   const getFileTypeColors = (type: string) => {
     switch (type) {
-      case 'md': return { color: '#818cf8', glow: 'rgba(129, 140, 248, 0.7)' };
-      case 'pdf': return { color: '#fb7185', glow: 'rgba(251, 113, 133, 0.7)' };
-      case 'pptx': return { color: '#f97316', glow: 'rgba(249, 115, 22, 0.7)' };
-      case 'code': return { color: '#4ade80', glow: 'rgba(74, 222, 128, 0.7)' };
-      case 'csv': return { color: '#34d399', glow: 'rgba(52, 211, 153, 0.7)' };
-      case 'docx': return { color: '#38bdf8', glow: 'rgba(56, 189, 248, 0.7)' };
-      case 'image': return { color: '#f59e0b', glow: 'rgba(245, 158, 11, 0.7)' };
-      case 'video': return { color: '#c084fc', glow: 'rgba(192, 132, 252, 0.7)' };
-      case 'folder': return { color: '#a855f7', glow: 'rgba(168, 85, 247, 0.8)' };
-      default: return { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.6)' };
+      case 'md': return { color: '#6366f1', glow: 'rgba(99, 102, 241, 0.7)' };
+      case 'pdf': return { color: '#e11d48', glow: 'rgba(225, 29, 72, 0.7)' };
+      case 'pptx': return { color: '#ea580c', glow: 'rgba(234, 88, 12, 0.7)' };
+      case 'code': return { color: '#16a34a', glow: 'rgba(22, 163, 74, 0.7)' };
+      case 'csv': return { color: '#059669', glow: 'rgba(5, 150, 105, 0.7)' };
+      case 'docx': return { color: '#0284c7', glow: 'rgba(2, 132, 199, 0.7)' };
+      case 'image': return { color: '#d97706', glow: 'rgba(217, 119, 6, 0.7)' };
+      case 'video': return { color: '#9333ea', glow: 'rgba(147, 51, 234, 0.7)' };
+      case 'folder': return { color: '#7c3aed', glow: 'rgba(124, 58, 237, 0.8)' };
+      default: return { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.7)' };
     }
   };
 
@@ -199,32 +208,53 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
     let indexCounter = 0;
 
-    const processItems = (items: FileItem[], parentId: string, depth: number) => {
-      items.forEach((item) => {
+    // Screen Responsive Scale Factor to fit 100% of nodes cleanly inside visible view
+    const responsiveScale = typeof window !== 'undefined' ? Math.min(Math.max(0.55, window.innerWidth / 1450), 1.0) : 0.8;
+
+    const processItems = (
+      items: FileItem[], 
+      parentId: string, 
+      depth: number, 
+      startAngle: number = 0, 
+      endAngle: number = Math.PI * 2
+    ) => {
+      const count = items.length;
+      if (count === 0) return;
+
+      const angleSpan = endAngle - startAngle;
+      const angleStep = count > 1 ? angleSpan / count : angleSpan;
+
+      items.forEach((item, idx) => {
         indexCounter++;
-        const currentIdx = indexCounter;
+
+        // Calculate dedicated non-crossing angle inside parent's angular cone
+        const nodeAngle = depth === 1 
+          ? startAngle + idx * (angleSpan / count) + (angleSpan / count) / 2
+          : startAngle + idx * (count > 1 ? angleSpan / (count - 1) : 0);
 
         if (item.type === 'folder') {
-          // Subfolder / Nested Subfolder Hub
-          const angle = (currentIdx / 8) * Math.PI * 2 + depth * (Math.PI / 6);
-          const orbitDist = depth === 1 ? 160 + (currentIdx % 3) * 50 : 80 + (currentIdx % 3) * 35;
-          const speed = (0.0008 / depth) * (currentIdx % 2 === 0 ? 1 : -1);
+          // Subfolder Hub (Dynamic Orbit Distance Proportional to File Count)
+          const childCount = item.children ? item.children.length : 0;
+          const baseDist = depth === 1 ? 220 : 120;
+          const distMultiplier = depth === 1 ? 28 : 18;
+          const orbitDist = (baseDist + Math.min(childCount * distMultiplier, 220)) * responsiveScale;
+          const speed = 0.0004 * (depth % 2 === 0 ? 1 : -1);
 
           nodeList.push({
             id: item.id,
             name: item.name,
             type: 'folder',
-            x: 0,
-            y: 0,
+            x: Math.cos(nodeAngle) * orbitDist,
+            y: Math.sin(nodeAngle) * orbitDist,
             vx: 0,
             vy: 0,
-            radius: Math.max(10, 18 - depth * 3),
+            radius: Math.max(10, Math.min(24, 14 + childCount * 1.5)),
             color: depth === 1 ? '#a855f7' : '#c084fc',
-            glowColor: depth === 1 ? 'rgba(168, 85, 247, 0.8)' : 'rgba(192, 132, 252, 0.8)',
+            glowColor: depth === 1 ? 'rgba(168, 85, 247, 0.7)' : 'rgba(192, 132, 252, 0.7)',
             parentId,
             moduleName: item.moduleName,
             orbitRadius: orbitDist,
-            orbitAngle: angle,
+            orbitAngle: nodeAngle,
             orbitSpeed: speed
           });
 
@@ -235,24 +265,25 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           });
 
           if (item.children && item.children.length > 0) {
-            processItems(item.children, item.id, depth + 1);
+            // Allocate sub-sector cone for children so child lines never cross adjacent subfolders
+            const subConeHalf = Math.min(angleStep / 2, Math.PI / 4);
+            processItems(item.children, item.id, depth + 1, nodeAngle - subConeHalf, nodeAngle + subConeHalf);
           }
         } else {
-          // Document Star Node
+          // Document Star Node (Non-Crossing Sector Distribution)
           const { color, glow } = getFileTypeColors(item.type);
-          const angle = (currentIdx / 10) * Math.PI * 2 + Math.PI / 4;
-          const orbitDist = parentId === 'root-nucleus' ? 280 + (currentIdx % 5) * 40 : 65 + (currentIdx % 4) * 28;
-          const speed = 0.0012 * (currentIdx % 2 === 0 ? 1 : -1);
+          const orbitDist = (parentId === 'root-nucleus' ? 220 + (idx % 4) * 35 : 95 + (idx % 3) * 25) * responsiveScale;
+          const speed = 0.0005 * (idx % 2 === 0 ? 1 : -1);
 
           nodeList.push({
             id: item.id,
             name: item.name,
             type: item.type as any,
-            x: 0,
-            y: 0,
+            x: Math.cos(nodeAngle) * orbitDist,
+            y: Math.sin(nodeAngle) * orbitDist,
             vx: 0,
             vy: 0,
-            radius: item.isFavorite ? 11 : 8,
+            radius: item.isFavorite ? 10 : 7,
             color,
             glowColor: glow,
             item,
@@ -260,25 +291,42 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             isFavorite: item.isFavorite,
             moduleName: item.moduleName,
             orbitRadius: orbitDist,
-            orbitAngle: angle,
+            orbitAngle: nodeAngle,
             orbitSpeed: speed
           });
 
           connList.push({
             sourceId: parentId,
             targetId: item.id,
-            color: glow.replace('0.7', '0.3')
+            color: 'rgba(255, 255, 255, 0.15)'
           });
         }
       });
     };
 
-    processItems(mainDir.files, 'root-nucleus', 1);
+    processItems(mainDir.files, 'root-nucleus', 1, 0, Math.PI * 2);
 
     return { nodes: nodeList, connections: connList };
   }, [mainDir.name, mainDir.files]);
 
-  // Canvas Physics & Render Loop
+  // Node Dragging State Refs
+  const draggedNodeRef = useRef<GalaxyNode | null>(null);
+  const dragNodeOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const hasDraggedNodeRef = useRef<boolean>(false);
+  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Compute Connected Neighbor Node IDs for Smart Hover Highlighting
+  const activeNeighborIds = useMemo(() => {
+    if (!hoveredNode) return null;
+    const set = new Set<string>([hoveredNode.id]);
+    connections.forEach(conn => {
+      if (conn.sourceId === hoveredNode.id) set.add(conn.targetId);
+      if (conn.targetId === hoveredNode.id) set.add(conn.sourceId);
+    });
+    return set;
+  }, [hoveredNode, connections]);
+
+  // Canvas Physics & Minimal Render Loop
   useEffect(() => {
     if (activeTab !== 'galaxy') return;
 
@@ -289,33 +337,34 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
     let animationFrameId: number;
 
-    const starDust = Array.from({ length: 140 }, () => ({
-      x: (Math.random() - 0.5) * 2400,
-      y: (Math.random() - 0.5) * 2400,
-      size: Math.random() * 2.0 + 0.4,
-      alpha: Math.random() * 0.75 + 0.25,
+    const starDust = Array.from({ length: 160 }, () => ({
+      x: (Math.random() - 0.5) * 3200,
+      y: (Math.random() - 0.5) * 3200,
+      size: Math.random() * 1.8 + 0.3,
+      alpha: Math.random() * 0.6 + 0.2,
       twinkleSpeed: Math.random() * 0.02 + 0.005
     }));
 
     const render = () => {
-      const width = canvas.parentElement?.clientWidth || 800;
-      const height = canvas.parentElement?.clientHeight || 600;
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+      const parent = canvas.parentElement;
+      if (parent) {
+        const rect = parent.getBoundingClientRect();
+        const width = Math.floor(rect.width);
+        const height = Math.floor(rect.height);
+        if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
+          canvas.width = width;
+          canvas.height = height;
+        }
       }
+
+      const width = canvas.width || 800;
+      const height = canvas.height || 600;
 
       ctx.save();
       ctx.clearRect(0, 0, width, height);
 
-      const bgGrad = ctx.createRadialGradient(
-        width / 2, height / 2, 40,
-        width / 2, height / 2, Math.max(width, height)
-      );
-      bgGrad.addColorStop(0, '#0f172a');
-      bgGrad.addColorStop(0.5, '#090d16');
-      bgGrad.addColorStop(1, '#020617');
-      ctx.fillStyle = bgGrad;
+      // Unified Deep Obsidian Canvas Fill (#090d16 - Seamless matching container background)
+      ctx.fillStyle = '#090d16';
       ctx.fillRect(0, 0, width, height);
 
       const centerX = width / 2 + panOffset.x;
@@ -324,21 +373,40 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       ctx.translate(centerX, centerY);
       ctx.scale(zoomScale, zoomScale);
 
+      // 1. Render Subtle Star Dust
       starDust.forEach(star => {
-        star.alpha += Math.sin(Date.now() * star.twinkleSpeed) * 0.01;
-        ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.1, Math.min(0.9, star.alpha))})`;
+        star.alpha += Math.sin(Date.now() * star.twinkleSpeed) * 0.006;
+        ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.08, Math.min(0.65, star.alpha))})`;
         ctx.beginPath();
         ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
         ctx.fill();
       });
 
-      // Update Node Positions
+      // 2. Timed Magnetic Latch Physics (2s File Nodes, 3s Folder Nodes) & Multi-Trigger Detachment
+      let closestNode: GalaxyNode | null = null;
+      let minDistance = Infinity;
+
+      // Track mouse movement velocity for fast movement detachment
+      const mX = mouseWorldPosRef.current ? mouseWorldPosRef.current.x : 0;
+      const mY = mouseWorldPosRef.current ? mouseWorldPosRef.current.y : 0;
+      const mouseVel = lastMousePosRef.current ? Math.hypot(mX - lastMousePosRef.current.x, mY - lastMousePosRef.current.y) : 0;
+      lastMousePosRef.current = { x: mX, y: mY };
+
+      if (mouseWorldPosRef.current) {
+        nodes.forEach(node => {
+          if (node.id === 'root-nucleus') return;
+          const distToMouse = Math.hypot(mX - node.x, mY - node.y);
+          if (distToMouse < 65 && distToMouse < minDistance) {
+            minDistance = distToMouse;
+            closestNode = node;
+          }
+        });
+      }
+
+      const now = Date.now();
+
       nodes.forEach(node => {
-        if (node.id === 'root-nucleus') {
-          node.x = 0;
-          node.y = 0;
-          return;
-        }
+        if (node.id === 'root-nucleus') return;
 
         if (autoRotate) {
           node.orbitAngle += node.orbitSpeed;
@@ -348,72 +416,174 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         const px = parent ? parent.x : 0;
         const py = parent ? parent.y : 0;
 
-        node.x = px + Math.cos(node.orbitAngle) * node.orbitRadius;
-        node.y = py + Math.sin(node.orbitAngle) * node.orbitRadius;
+        let targetX = px + Math.cos(node.orbitAngle) * node.orbitRadius;
+        let targetY = py + Math.sin(node.orbitAngle) * node.orbitRadius;
+
+        const isClosest = closestNode && node.id === closestNode.id;
+        const distToMouse = mouseWorldPosRef.current ? Math.hypot(mX - node.x, mY - node.y) : Infinity;
+
+        // Timed Magnetic Latch logic (File nodes: 2000ms, Folder nodes: 3000ms)
+        const requiredTime = node.type === 'folder' ? 3000 : 2000;
+
+        if (isClosest && !node.isMagnetLocked) {
+          if (!node.hoverStartTimestamp) {
+            node.hoverStartTimestamp = now;
+          }
+          const elapsed = now - node.hoverStartTimestamp;
+          node.latchProgress = Math.min(1.0, elapsed / requiredTime);
+
+          if (elapsed >= requiredTime) {
+            // Attach magnetically after press/hover time threshold reached!
+            node.isMagnetLocked = true;
+            node.latchProgress = 1.0;
+          }
+        } else if (!isClosest && !node.isMagnetLocked) {
+          node.hoverStartTimestamp = undefined;
+          node.latchProgress = 0;
+        }
+
+        // Fast mouse movement (> 38px/frame) or extended distance detachment (> 240px)
+        if (node.isMagnetLocked) {
+          if (distToMouse > 240 || mouseVel > 38) {
+            node.isMagnetLocked = false;
+            node.hoverStartTimestamp = undefined;
+            node.latchProgress = 0;
+          }
+        }
+
+        if (node.isMagnetLocked || node.isDragged) {
+          if (mouseWorldPosRef.current) {
+            targetX = mX;
+            targetY = mY;
+          }
+        }
+
+        // Smooth fluid flow interpolation toward orbital target or magnetic pointer
+        node.x += (targetX - node.x) * 0.22;
+        node.y += (targetY - node.y) * 0.22;
       });
 
-      // Draw Orbit Rings for Folders
-      nodes.filter(n => n.type === 'folder').forEach(folder => {
-        ctx.strokeStyle = 'rgba(168, 85, 247, 0.1)';
+      // Soft Repulsion Solver for fluid node breathing room
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i];
+          const b = nodes[j];
+          if (a.id === 'root-nucleus' || b.id === 'root-nucleus') continue;
+
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.hypot(dx, dy);
+          const minDist = a.radius + b.radius + 50;
+
+          if (dist < minDist && dist > 0.1) {
+            const overlap = (minDist - dist) / dist * 0.025;
+            const pushX = dx * overlap;
+            const pushY = dy * overlap;
+
+            if (!a.isMagnetLocked && !a.isDragged) {
+              a.x -= pushX;
+              a.y -= pushY;
+            }
+            if (!b.isMagnetLocked && !b.isDragged) {
+              b.x += pushX;
+              b.y += pushY;
+            }
+          }
+        }
+      }
+
+      // 3. Draw Orbit Guide Rings for Folders
+      nodes.filter(n => n.type === 'folder' && n.id !== 'root-nucleus').forEach(folder => {
+        ctx.strokeStyle = activeNeighborIds && !activeNeighborIds.has(folder.id) ? 'rgba(168, 85, 247, 0.03)' : 'rgba(168, 85, 247, 0.08)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(folder.x, folder.y, folder.orbitRadius || 130, 0, Math.PI * 2);
+        ctx.arc(folder.x, folder.y, folder.orbitRadius || 180, 0, Math.PI * 2);
         ctx.stroke();
       });
 
-      // Draw Constellation Connection Lines
+      // 4. Draw Minimalist Constellation Connections
       connections.forEach(conn => {
         const src = nodes.find(n => n.id === conn.sourceId);
         const tgt = nodes.find(n => n.id === conn.targetId);
         if (!src || !tgt) return;
 
         const isSearchMatch = dashSearch.trim() && tgt.name.toLowerCase().includes(dashSearch.toLowerCase());
-        const isHovered = hoveredNode?.id === tgt.id || hoveredNode?.id === src.id;
-        const isSelected = selectedNode?.id === tgt.id || selectedNode?.id === src.id;
+        const isNeighbor = activeNeighborIds ? (activeNeighborIds.has(src.id) && activeNeighborIds.has(tgt.id)) : false;
 
-        ctx.strokeStyle = isSelected ? 'rgba(168, 85, 247, 0.9)' : isHovered ? 'rgba(56, 189, 248, 0.85)' : isSearchMatch ? 'rgba(250, 204, 21, 0.85)' : conn.color;
-        ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2 : isSearchMatch ? 1.8 : 1;
+        let strokeColor = 'rgba(255, 255, 255, 0.12)';
+        let lineWidth = 1;
+
+        if (activeNeighborIds) {
+          if (isNeighbor) {
+            strokeColor = 'rgba(129, 140, 248, 0.85)';
+            lineWidth = 2;
+          } else {
+            strokeColor = 'rgba(255, 255, 255, 0.03)';
+          }
+        } else if (isSearchMatch) {
+          strokeColor = 'rgba(250, 204, 21, 0.85)';
+          lineWidth = 1.8;
+        }
+
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = lineWidth;
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
         ctx.lineTo(tgt.x, tgt.y);
         ctx.stroke();
       });
 
-      // Draw Star Nodes
+      // 5. Draw Minimalist Star Nodes & Magnetic Charging Ring
       nodes.forEach(node => {
         const isSearchMatch = dashSearch.trim() && node.name.toLowerCase().includes(dashSearch.toLowerCase());
         const isHovered = hoveredNode?.id === node.id;
         const isSelected = selectedNode?.id === node.id;
 
-        const haloRadius = node.radius * (isHovered || isSelected || isSearchMatch ? 3.5 : 2.2);
-        const radialGlow = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, haloRadius);
-        radialGlow.addColorStop(0, isSearchMatch ? 'rgba(250, 204, 21, 0.85)' : isSelected ? 'rgba(168, 85, 247, 0.9)' : node.glowColor);
-        radialGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        // Keep 100% Full Opacity at all times (Zero Node Darkening/Dimming on Hover)
+        ctx.globalAlpha = 1.0;
 
-        ctx.fillStyle = radialGlow;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, haloRadius, 0, Math.PI * 2);
-        ctx.fill();
+        // Visual Latch Charging Progress Ring (0% -> 100%)
+        if (node.latchProgress && node.latchProgress > 0 && !node.isMagnetLocked) {
+          ctx.strokeStyle = node.type === 'folder' ? '#c084fc' : '#818cf8';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, node.radius + 5, -Math.PI / 2, -Math.PI / 2 + node.latchProgress * Math.PI * 2);
+          ctx.stroke();
+        }
 
+        // Magnetically Attached Minimal Active Ring
+        if (node.isMagnetLocked) {
+          ctx.strokeStyle = '#4ade80';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, node.radius + 5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Clean Core Node Circle
         ctx.fillStyle = isSearchMatch ? '#facc15' : isSelected ? '#a855f7' : node.color;
         ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius * (isHovered || isSelected ? 1.4 : 1.0), 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, node.radius * (isHovered || isSelected ? 1.25 : 1.0), 0, Math.PI * 2);
         ctx.fill();
 
         if (node.isFavorite) {
           ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 2.0;
+          ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius + 4, 0, Math.PI * 2);
+          ctx.arc(node.x, node.y, node.radius + 3, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        if (showLabels || isHovered || isSelected || isSearchMatch) {
-          ctx.font = isHovered || isSelected ? 'bold 13px Inter, sans-serif' : '11px Inter, sans-serif';
+        // Minimalist Typography Labels (Strictly Obey showLabels Toggle)
+        const shouldRenderLabel = showLabels || isHovered || isSelected || isSearchMatch;
+        if (shouldRenderLabel) {
+          ctx.font = isHovered || isSelected ? 'bold 12px Inter, sans-serif' : '11px Inter, sans-serif';
           ctx.fillStyle = isHovered || isSelected ? '#ffffff' : isSearchMatch ? '#facc15' : 'rgba(226, 232, 240, 0.85)';
           ctx.textAlign = 'center';
-          ctx.fillText(node.name, node.x, node.y + node.radius + 15);
+          ctx.fillText(node.name, node.x, node.y + node.radius + 14);
         }
+
+        ctx.globalAlpha = 1.0;
       });
 
       ctx.restore();
@@ -425,9 +595,51 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [activeTab, nodes, connections, autoRotate, showLabels, zoomScale, panOffset, hoveredNode, selectedNode, dashSearch]);
+  }, [activeTab, nodes, connections, autoRotate, showLabels, zoomScale, panOffset, hoveredNode, selectedNode, dashSearch, activeNeighborIds]);
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Release any magnetically locked nodes on click (Left or Right Click Detach)
+    nodes.forEach(n => {
+      if (n.isMagnetLocked) {
+        n.isMagnetLocked = false;
+        n.hoverStartTimestamp = undefined;
+        n.latchProgress = 0;
+      }
+    });
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const centerX = canvas.width / 2 + panOffset.x;
+    const centerY = canvas.height / 2 + panOffset.y;
+
+    const worldX = (mouseX - centerX) / zoomScale;
+    const worldY = (mouseY - centerY) / zoomScale;
+
+    // Check hit test for node dragging
+    let hitNode: GalaxyNode | null = null;
+    for (const node of nodes) {
+      const dist = Math.hypot(worldX - node.x, worldY - node.y);
+      if (dist <= node.radius + 12) {
+        hitNode = node;
+        break;
+      }
+    }
+
+    if (hitNode) {
+      draggedNodeRef.current = hitNode;
+      dragNodeOffsetRef.current = { x: hitNode.x - worldX, y: hitNode.y - worldY };
+      hitNode.isDragged = true;
+      hitNode.isPinned = true;
+      hasDraggedNodeRef.current = false;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
+
     isDraggingRef.current = true;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
     panStartRef.current = { ...panOffset };
@@ -441,6 +653,26 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
+    const centerX = canvas.width / 2 + panOffset.x;
+    const centerY = canvas.height / 2 + panOffset.y;
+
+    const worldX = (mouseX - centerX) / zoomScale;
+    const worldY = (mouseY - centerY) / zoomScale;
+    mouseWorldPosRef.current = { x: worldX, y: worldY };
+
+    // Interactive Node Dragging (Smooth Grab & Lock in Placed Position)
+    if (draggedNodeRef.current) {
+      const dx = Math.abs(e.clientX - dragStartRef.current.x);
+      const dy = Math.abs(e.clientY - dragStartRef.current.y);
+      if (dx > 3 || dy > 3) {
+        hasDraggedNodeRef.current = true;
+      }
+      draggedNodeRef.current.x = worldX + dragNodeOffsetRef.current.x;
+      draggedNodeRef.current.y = worldY + dragNodeOffsetRef.current.y;
+      draggedNodeRef.current.isPinned = true;
+      return;
+    }
+
     if (isDraggingRef.current) {
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
@@ -451,16 +683,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       return;
     }
 
-    const centerX = canvas.width / 2 + panOffset.x;
-    const centerY = canvas.height / 2 + panOffset.y;
-
-    const worldX = (mouseX - centerX) / zoomScale;
-    const worldY = (mouseY - centerY) / zoomScale;
-
     let found: GalaxyNode | null = null;
     for (const node of nodes) {
       const dist = Math.hypot(worldX - node.x, worldY - node.y);
-      if (dist <= node.radius + 8) {
+      if (dist <= node.radius + 10) {
         found = node;
         break;
       }
@@ -469,10 +695,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   };
 
   const handleCanvasMouseUp = () => {
+    if (draggedNodeRef.current) {
+      draggedNodeRef.current.isDragged = false;
+      draggedNodeRef.current = null;
+    }
     isDraggingRef.current = false;
   };
 
   const handleCanvasClick = () => {
+    if (hasDraggedNodeRef.current) {
+      hasDraggedNodeRef.current = false;
+      return; // Prevent opening file if user was dragging node
+    }
+
     if (hoveredNode) {
       setSelectedNode(hoveredNode);
       if (hoveredNode.item) {
@@ -537,7 +772,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 fontSize: '0.82rem',
                 fontWeight: 800,
                 border: 'none',
-                background: activeTab === 'galaxy' ? 'var(--primary)' : 'transparent',
+                background: activeTab === 'galaxy' ? '#1d4ed8' : 'transparent',
                 color: activeTab === 'galaxy' ? '#ffffff' : 'var(--text-muted)',
                 cursor: 'pointer',
                 display: 'flex',
@@ -546,7 +781,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 transition: 'all 0.15s ease'
               }}
             >
-              <Globe size={15} /> Knowledge Galaxy
+              <Globe size={15} style={{ color: activeTab === 'galaxy' ? '#ffffff' : '#60a5fa' }} /> Knowledge Galaxy
             </button>
 
             <button
@@ -557,7 +792,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 fontSize: '0.82rem',
                 fontWeight: 800,
                 border: 'none',
-                background: activeTab === 'explorer' ? 'var(--primary)' : 'transparent',
+                background: activeTab === 'explorer' ? '#1d4ed8' : 'transparent',
                 color: activeTab === 'explorer' ? '#ffffff' : 'var(--text-muted)',
                 cursor: 'pointer',
                 display: 'flex',
@@ -566,28 +801,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 transition: 'all 0.15s ease'
               }}
             >
-              <Layers size={15} /> Vault Feed
+              <Layers size={15} style={{ color: activeTab === 'explorer' ? '#ffffff' : '#60a5fa' }} /> Vault Feed
             </button>
 
-            <button
-              onClick={() => setActiveTab('analytics')}
-              style={{
-                padding: '8px 15px',
-                borderRadius: 10,
-                fontSize: '0.82rem',
-                fontWeight: 800,
-                border: 'none',
-                background: activeTab === 'analytics' ? 'var(--primary)' : 'transparent',
-                color: activeTab === 'analytics' ? '#ffffff' : 'var(--text-muted)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <Activity size={15} /> Vault Analytics
-            </button>
           </div>
 
           {/* Quick Search */}
@@ -621,14 +837,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           >
             <FolderPlus size={15} /> + Folder
           </button>
-
-          <button 
-            className="tool-btn" 
-            onClick={onSelectMainDirectory}
-            style={{ padding: '9px 14px', borderRadius: 12, fontSize: '0.82rem', border: '1px solid var(--border-color)', fontWeight: 700 }}
-          >
-            <FolderOpen size={15} /> Switch Vault
-          </button>
         </div>
       </div>
 
@@ -642,8 +850,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             border: '1px solid var(--border-color)',
             position: 'relative',
             overflow: 'hidden',
-            background: '#020617',
-            boxShadow: 'inset 0 0 80px rgba(0,0,0,0.85)',
+            background: '#090d16',
             display: 'flex'
           }}
         >
@@ -657,154 +864,172 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             style={{ width: '100%', height: '100%', cursor: hoveredNode ? 'pointer' : isDraggingRef.current ? 'grabbing' : 'grab' }}
           />
 
-          {/* Top HUD Overlay */}
+          {/* Minimalist Top HUD Header */}
           <div style={{
             position: 'absolute',
-            top: 20,
-            left: 20,
-            right: 20,
+            top: 16,
+            left: 16,
+            right: 16,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             pointerEvents: 'none'
           }}>
             <div style={{
-              background: 'rgba(15, 23, 42, 0.75)',
-              backdropFilter: 'blur(16px)',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
-              borderRadius: 16,
-              padding: '8px 16px',
+              background: 'rgba(7, 11, 22, 0.82)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: 14,
+              padding: '6px 14px',
               display: 'flex',
               alignItems: 'center',
-              gap: 16,
+              gap: 12,
               color: '#e2e8f0',
-              fontSize: '0.78rem',
-              fontWeight: 800,
+              fontSize: '0.76rem',
+              fontWeight: 700,
               pointerEvents: 'auto'
             }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#c084fc' }}>
-                <Zap size={14} /> Total Nodes: <strong style={{ color: '#ffffff' }}>{counts.total}</strong>
+                <Zap size={13} /> Vault: <strong style={{ color: '#ffffff' }}>{counts.total} Nodes</strong>
               </span>
-              <span style={{ color: 'rgba(255, 255, 255, 0.2)' }}>|</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.15)' }}>|</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#38bdf8' }}>
-                <Activity size={14} /> Connections: <strong style={{ color: '#ffffff' }}>{connections.length}</strong>
+                <Activity size={13} /> Connections: <strong style={{ color: '#ffffff' }}>{connections.length}</strong>
               </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, pointerEvents: 'auto' }}>
               <button
                 onClick={() => setAutoRotate(!autoRotate)}
                 style={{
-                  padding: '8px 14px',
+                  padding: '6px 12px',
                   borderRadius: 12,
-                  background: autoRotate ? 'rgba(168, 85, 247, 0.25)' : 'rgba(15, 23, 42, 0.75)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: autoRotate ? '#c084fc' : '#94a3b8',
-                  fontSize: '0.78rem',
-                  fontWeight: 800,
+                  background: autoRotate ? 'rgba(59, 130, 246, 0.22)' : 'rgba(7, 11, 22, 0.82)',
+                  border: autoRotate ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+                  color: autoRotate ? '#60a5fa' : '#94a3b8',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
                   cursor: 'pointer',
-                  backdropFilter: 'blur(16px)',
+                  backdropFilter: 'blur(20px)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6
+                  gap: 5
                 }}
+                title="Toggle Auto Orbit Rotation"
               >
-                <RotateCcw size={14} /> {autoRotate ? 'Orbit: Active' : 'Orbit: Paused'}
+                <RotateCcw size={13} /> {autoRotate ? 'Orbit' : 'Paused'}
               </button>
 
               <button
                 onClick={() => setShowLabels(!showLabels)}
                 style={{
-                  padding: '8px 14px',
+                  padding: '6px 12px',
                   borderRadius: 12,
-                  background: showLabels ? 'rgba(56, 189, 248, 0.25)' : 'rgba(15, 23, 42, 0.75)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: showLabels ? '#38bdf8' : '#94a3b8',
-                  fontSize: '0.78rem',
-                  fontWeight: 800,
+                  background: showLabels ? 'rgba(59, 130, 246, 0.22)' : 'rgba(7, 11, 22, 0.82)',
+                  border: showLabels ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+                  color: showLabels ? '#60a5fa' : '#94a3b8',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
                   cursor: 'pointer',
-                  backdropFilter: 'blur(16px)'
-                }}
-              >
-                {showLabels ? 'Labels: Visible' : 'Labels: Hidden'}
-              </button>
-
-              <button
-                onClick={resetView}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 12,
-                  background: 'rgba(15, 23, 42, 0.75)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: '#ffffff',
-                  fontSize: '0.78rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  backdropFilter: 'blur(16px)',
+                  backdropFilter: 'blur(20px)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4
+                  gap: 5
                 }}
+                title="Toggle Node Text Labels"
               >
-                <Maximize2 size={13} /> Reset View ({Math.round(zoomScale * 100)}%)
+                {showLabels ? <Eye size={13} /> : <EyeOff size={13} />} Labels
               </button>
             </div>
           </div>
 
-          {/* Bottom Star File Type Color Legend */}
+          {/* Dedicated Bottom-Left Zoom Adjuster Controls Widget */}
           <div style={{
             position: 'absolute',
-            bottom: 20,
-            left: 20,
-            background: 'rgba(15, 23, 42, 0.8)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-            borderRadius: 16,
-            padding: '10px 18px',
+            bottom: 16,
+            left: 16,
+            background: 'rgba(7, 11, 22, 0.85)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 14,
+            padding: '6px 12px',
             display: 'flex',
             alignItems: 'center',
-            gap: 16,
-            flexWrap: 'wrap'
+            gap: 8,
+            pointerEvents: 'auto'
           }}>
-            {[
-              { label: 'Markdown', color: '#818cf8' },
-              { label: 'PDF', color: '#fb7185' },
-              { label: 'PPTX', color: '#f97316' },
-              { label: 'Code', color: '#4ade80' },
-              { label: 'CSV', color: '#34d399' },
-              { label: 'DOCX', color: '#38bdf8' },
-              { label: 'Image', color: '#f59e0b' },
-              { label: 'Video', color: '#c084fc' },
-              { label: 'Folder Hub', color: '#a855f7' }
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 800, color: '#e2e8f0' }}>
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: item.color, boxShadow: `0 0 8px ${item.color}` }} />
-                <span>{item.label}</span>
-              </div>
-            ))}
+            <button
+              onClick={() => setZoomScale(prev => Math.max(0.4, Math.round((prev - 0.1) * 100) / 100))}
+              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 2 }}
+              title="Zoom Out"
+            >
+              <ZoomOut size={14} />
+            </button>
+
+            <input
+              type="range"
+              min={0.4}
+              max={2.0}
+              step={0.05}
+              value={zoomScale}
+              onChange={(e) => setZoomScale(parseFloat(e.target.value))}
+              style={{ width: 90, accentColor: 'var(--primary)', cursor: 'pointer', height: 4 }}
+              title={`Zoom Scale: ${Math.round(zoomScale * 100)}%`}
+            />
+
+            <button
+              onClick={() => setZoomScale(prev => Math.min(2.0, Math.round((prev + 0.1) * 100) / 100))}
+              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 2 }}
+              title="Zoom In"
+            >
+              <ZoomIn size={14} />
+            </button>
+
+            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#e2e8f0', minWidth: 38, textAlign: 'center' }}>
+              {Math.round(zoomScale * 100)}%
+            </span>
+
+            <button
+              onClick={resetView}
+              style={{
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                borderRadius: 8,
+                color: '#ffffff',
+                fontSize: '0.70rem',
+                fontWeight: 700,
+                padding: '3px 8px',
+                cursor: 'pointer',
+                marginLeft: 2
+              }}
+              title="Reset Zoom & Fit Nodes On Screen"
+            >
+              Reset
+            </button>
           </div>
 
-          {/* Hovered/Selected Star Detail Card */}
+          {/* Hovered/Selected Star Minimalist Detail Card */}
           {(hoveredNode || selectedNode) && (hoveredNode?.item || selectedNode?.item) && (
             <div style={{
               position: 'absolute',
               bottom: 20,
               right: 20,
-              width: 300,
-              background: 'rgba(15, 23, 42, 0.92)',
+              width: 240,
+              background: 'rgba(7, 11, 22, 0.85)',
               backdropFilter: 'blur(20px)',
               border: `1px solid ${(hoveredNode || selectedNode)?.color}`,
-              borderRadius: 20,
-              padding: 20,
+              borderRadius: 16,
+              padding: '14px 16px',
               color: '#ffffff',
-              boxShadow: `0 12px 36px ${(hoveredNode || selectedNode)?.glowColor}`,
-              zIndex: 10
+              boxShadow: `0 8px 32px rgba(0, 0, 0, 0.6), 0 0 16px ${(hoveredNode || selectedNode)?.glowColor}`,
+              zIndex: 10,
+              pointerEvents: 'auto'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: (hoveredNode || selectedNode)?.color, boxShadow: `0 0 10px ${(hoveredNode || selectedNode)?.color}` }} />
-                  <span style={{ fontSize: '0.74rem', fontWeight: 900, textTransform: 'uppercase', color: (hoveredNode || selectedNode)?.color, letterSpacing: '0.05em' }}>
-                    {(hoveredNode || selectedNode)?.type.toUpperCase()} DOCUMENT
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: (hoveredNode || selectedNode)?.color, boxShadow: `0 0 8px ${(hoveredNode || selectedNode)?.color}` }} />
+                  <span style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', color: (hoveredNode || selectedNode)?.color, letterSpacing: '0.06em' }}>
+                    {(hoveredNode || selectedNode)?.type.toUpperCase()}
                   </span>
                 </div>
                 <button
@@ -813,45 +1038,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     const targetFile = hoveredNode?.item || selectedNode?.item;
                     if (targetFile) onToggleFavorite(targetFile.id);
                   }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: (hoveredNode || selectedNode)?.isFavorite ? '#f59e0b' : '#94a3b8' }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: (hoveredNode || selectedNode)?.isFavorite ? '#f59e0b' : '#64748b', padding: 0 }}
+                  title="Toggle Favorite"
                 >
-                  <Star size={16} fill={(hoveredNode || selectedNode)?.isFavorite ? '#f59e0b' : 'none'} />
+                  <Star size={14} fill={(hoveredNode || selectedNode)?.isFavorite ? '#f59e0b' : 'none'} />
                 </button>
               </div>
 
-              <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#ffffff', marginBottom: 8 }}>
+              <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#ffffff', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {(hoveredNode || selectedNode)?.name}
               </div>
 
-              <div style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <div>Directory: <strong style={{ color: '#e2e8f0' }}>{(hoveredNode || selectedNode)?.moduleName || 'Root Vault'}</strong></div>
-                <div>Status: <strong style={{ color: (hoveredNode || selectedNode)?.isFavorite ? '#f59e0b' : '#cbd5e1' }}>{(hoveredNode || selectedNode)?.isFavorite ? 'Starred Favorite' : 'Standard Document'}</strong></div>
+              <div style={{ fontSize: '0.74rem', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Vault Folder:</span>
+                <strong style={{ color: '#e2e8f0', fontWeight: 700 }}>{(hoveredNode || selectedNode)?.moduleName || 'Root Vault'}</strong>
               </div>
-
-              <button
-                onClick={() => {
-                  const targetFile = hoveredNode?.item || selectedNode?.item;
-                  if (targetFile) onSelectFile(targetFile);
-                }}
-                style={{
-                  marginTop: 14,
-                  width: '100%',
-                  padding: '10px 0',
-                  borderRadius: 12,
-                  background: (hoveredNode || selectedNode)?.color,
-                  border: 'none',
-                  color: '#ffffff',
-                  fontSize: '0.82rem',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8
-                }}
-              >
-                Open Document <ArrowRight size={15} />
-              </button>
             </div>
           )}
         </div>
@@ -925,7 +1126,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
                 <div style={{ fontSize: '1.0rem', fontWeight: 900, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Layers size={18} style={{ color: 'var(--primary)' }} />
-                  <span>Vault Document Feed ({filteredFiles.length})</span>
+                  <span>Recently Opened Documents ({Math.min(15, filteredFiles.length)})</span>
                 </div>
                 
                 {/* Category Filter Pills */}
@@ -962,10 +1163,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
               </div>
 
-              {/* Feed Card List */}
+              {/* Feed Card List - Limited strictly to top 15 recent documents */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', flex: 1, paddingRight: 4 }}>
                 {filteredFiles.length > 0 ? (
-                  filteredFiles.map(file => (
+                  filteredFiles.slice(0, 15).map(file => (
                     <div
                       key={file.id}
                       onClick={() => onSelectFile(file)}

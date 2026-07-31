@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { HeaderBar } from './components/HeaderBar';
+import { TabBar } from './components/TabBar';
 import { MarkdownViewer } from './components/MarkdownViewer';
 import { PdfViewer } from './components/PdfViewer';
 import { DocxViewer } from './components/DocxViewer';
@@ -33,6 +34,7 @@ import { getGlobalSession, saveGlobalSession } from './utils/stateMemory';
 export function App() {
   const [mainDir, setMainDir] = useState<MainDirectory>(EMPTY_MAIN_DIRECTORY);
   const [activeFile, setActiveFile] = useState<FileItem | null>(null);
+  const [openTabs, setOpenTabs] = useState<FileItem[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
@@ -53,7 +55,7 @@ export function App() {
   const [targetModuleName, setTargetModuleName] = useState<string | undefined>(undefined);
 
   const [settings, setSettings] = useState<ReadingSettings>({
-    theme: 'dark',
+    theme: 'full-black',
     fontSize: 16,
     lineHeight: 1.7,
     fontFamily: 'Inter',
@@ -126,8 +128,35 @@ export function App() {
 
   const handleSelectFile = async (file: FileItem) => {
     const loadedFile = await ensureFileContentLoaded(file);
+    setOpenTabs(prev => {
+      const exists = prev.some(t => t.id === loadedFile.id);
+      if (exists) {
+        return prev.map(t => t.id === loadedFile.id ? loadedFile : t);
+      }
+      return [...prev, loadedFile];
+    });
     setActiveFile(loadedFile);
     setViewMode('preview');
+  };
+
+  const handleCloseTab = (fileId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenTabs(prev => {
+      const closingIdx = prev.findIndex(t => t.id === fileId);
+      const nextTabs = prev.filter(t => t.id !== fileId);
+
+      if (activeFile?.id === fileId) {
+        if (nextTabs.length > 0) {
+          const fallbackIdx = Math.max(0, closingIdx - 1);
+          const nextActive = nextTabs[fallbackIdx];
+          setActiveFile(nextActive);
+        } else {
+          setActiveFile(null);
+          setViewMode('dashboard');
+        }
+      }
+      return nextTabs;
+    });
   };
 
   const handleContentChange = useCallback((newContent: string) => {
@@ -426,8 +455,35 @@ export function App() {
           availablePdfFile={activePdfFile}
         />
 
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {viewMode === 'dashboard' || !activeFile ? (
+        <TabBar 
+          openTabs={openTabs}
+          activeFile={activeFile}
+          onSelectTab={(file) => {
+            setActiveFile(file);
+            if (viewMode === 'dashboard') setViewMode('preview');
+          }}
+          onCloseTab={handleCloseTab}
+          onGoToDashboard={() => setViewMode('dashboard')}
+          isDashboardActive={viewMode === 'dashboard' || !activeFile}
+          onNewNoteClick={() => triggerOpenCreateModal()}
+        />
+
+        <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
+          {/* 1. Dashboard Overview Workspace Container */}
+          <div 
+            style={{ 
+              position: 'absolute', 
+              inset: 0, 
+              visibility: (viewMode === 'dashboard' || !activeFile) ? 'visible' : 'hidden', 
+              opacity: (viewMode === 'dashboard' || !activeFile) ? 1 : 0, 
+              pointerEvents: (viewMode === 'dashboard' || !activeFile) ? 'auto' : 'none', 
+              zIndex: (viewMode === 'dashboard' || !activeFile) ? 1 : -1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              width: '100%', 
+              height: '100%' 
+            }}
+          >
             <DashboardOverview 
               mainDir={mainDir}
               onSelectMainDirectory={handleSelectMainDirectory}
@@ -436,57 +492,90 @@ export function App() {
               onCreateFolder={triggerOpenCreateFolderModal}
               onToggleFavorite={handleToggleFavorite}
             />
-          ) : viewMode === 'split-pdf' && activeFile.type === 'md' ? (
-            <SplitPdfNoteView 
-              pdfFile={activePdfFile}
-              allPdfFiles={allPdfFiles}
-              onSelectPdfFile={setSelectedPdfFile}
-              markdownFile={activeFile}
-              onMarkdownChange={handleContentChange}
-              settings={settings}
-              onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
-              onOpenFlashcards={() => setShowFlashcards(true)}
-            />
-          ) : activeFile.type === 'md' ? (
-            <MarkdownViewer 
-              file={activeFile}
-              onContentChange={handleContentChange}
-              settings={settings}
-              onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
-              onOpenFlashcards={() => setShowFlashcards(true)}
-              viewMode={viewMode === 'focus' ? 'split' : viewMode as any}
-            />
-          ) : activeFile.type === 'code' ? (
-            <CodeEditor 
-              file={activeFile} 
-              onContentChange={handleContentChange} 
-            />
-          ) : activeFile.type === 'csv' ? (
-            <CsvViewer 
-              file={activeFile} 
-              onContentChange={handleContentChange} 
-            />
-          ) : activeFile.type === 'image' ? (
-            <ImageViewer file={activeFile} />
-          ) : activeFile.type === 'video' ? (
-            <VideoViewer 
-              file={activeFile} 
-              onExportNotesToMarkdown={(mdText) => {
-                const noteTitle = `VideoNotes-${activeFile.name.replace(/\.[^/.]+$/, '')}.md`;
-                handleCreateNoteSubmit(noteTitle, activeFile.moduleName, mdText);
-              }}
-            />
-          ) : activeFile.type === 'pdf' ? (
-            <PdfViewer file={activeFile} />
-          ) : activeFile.type === 'docx' ? (
-            <DocxViewer file={activeFile} />
-          ) : activeFile.type === 'pptx' ? (
-            <PptxViewer file={activeFile} settings={settings} />
-          ) : (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-              Unsupported file type ({activeFile.extension}).
-            </div>
-          )}
+          </div>
+
+          {/* 2. Persistent DOM Multi-Tab Viewer Containers (1 Container Per Open Tab for Instant 0ms Switching) */}
+          {openTabs.map((file) => {
+            const isTabActive = viewMode !== 'dashboard' && activeFile?.id === file.id;
+
+            return (
+              <div 
+                key={file.id} 
+                style={{ 
+                  position: 'absolute', 
+                  inset: 0, 
+                  visibility: isTabActive ? 'visible' : 'hidden', 
+                  opacity: isTabActive ? 1 : 0, 
+                  pointerEvents: isTabActive ? 'auto' : 'none', 
+                  zIndex: isTabActive ? 1 : -1, 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  width: '100%', 
+                  height: '100%' 
+                }}
+              >
+                {viewMode === 'split-pdf' && file.type === 'md' ? (
+                  <SplitPdfNoteView 
+                    pdfFile={activePdfFile}
+                    allPdfFiles={allPdfFiles}
+                    onSelectPdfFile={setSelectedPdfFile}
+                    markdownFile={file}
+                    onMarkdownChange={(c) => {
+                      if (activeFile?.id === file.id) handleContentChange(c);
+                    }}
+                    settings={settings}
+                    onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
+                    onOpenFlashcards={() => setShowFlashcards(true)}
+                  />
+                ) : file.type === 'md' ? (
+                  <MarkdownViewer 
+                    file={file}
+                    onContentChange={(c) => {
+                      if (activeFile?.id === file.id) handleContentChange(c);
+                    }}
+                    settings={settings}
+                    onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
+                    onOpenFlashcards={() => setShowFlashcards(true)}
+                    viewMode={viewMode === 'focus' ? 'split' : viewMode as any}
+                  />
+                ) : file.type === 'code' ? (
+                  <CodeEditor 
+                    file={file} 
+                    onContentChange={(c) => {
+                      if (activeFile?.id === file.id) handleContentChange(c);
+                    }} 
+                  />
+                ) : file.type === 'csv' ? (
+                  <CsvViewer 
+                    file={file} 
+                    onContentChange={(c) => {
+                      if (activeFile?.id === file.id) handleContentChange(c);
+                    }} 
+                  />
+                ) : file.type === 'image' ? (
+                  <ImageViewer file={file} />
+                ) : file.type === 'video' ? (
+                  <VideoViewer 
+                    file={file} 
+                    onExportNotesToMarkdown={(mdText) => {
+                      const noteTitle = `VideoNotes-${file.name.replace(/\.[^/.]+$/, '')}.md`;
+                      handleCreateNoteSubmit(noteTitle, file.moduleName, mdText);
+                    }}
+                  />
+                ) : file.type === 'pdf' ? (
+                  <PdfViewer file={file} />
+                ) : file.type === 'docx' ? (
+                  <DocxViewer file={file} />
+                ) : file.type === 'pptx' ? (
+                  <PptxViewer file={file} settings={settings} />
+                ) : (
+                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+                    Unsupported file type ({file.extension}).
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </main>
 

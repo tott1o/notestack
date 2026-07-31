@@ -74,6 +74,33 @@
   --shadow-lg: 0 10px 25px -5px rgba(67, 52, 34, 0.1);
 }
 
+/* Terminal Full Black & Electric Blue Theme */
+[data-theme='full-black'] {
+  --bg-main: #000000;
+  --bg-surface: #040406;
+  --bg-surface-elevated: #0a0c10;
+  --bg-surface-hover: #121620;
+  --border-color: rgba(59, 130, 246, 0.22);
+  --border-highlight: rgba(0, 229, 255, 0.5);
+
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-light: rgba(59, 130, 246, 0.2);
+
+  --accent-cyan: #00e5ff;
+  --accent-emerald: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  --accent-purple: #8b5cf6;
+
+  --text-main: #f0f6fc;
+  --text-muted: #8b949e;
+  --text-dim: #484f58;
+
+  --shadow-glow: 0 0 25px rgba(59, 130, 246, 0.3);
+  --shadow-lg: 0 10px 30px -5px rgba(0, 0, 0, 0.95);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -206,12 +233,12 @@ button, input, select, textarea {
 
 /* Action Buttons */
 .btn-primary {
-  background: var(--primary);
+  background: #1d4ed8;
   color: white;
   border: none;
   padding: 9px 14px;
   border-radius: var(--radius-md);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.85rem;
   cursor: pointer;
   display: flex;
@@ -219,12 +246,13 @@ button, input, select, textarea {
   justify-content: center;
   gap: 6px;
   transition: var(--transition);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.3);
 }
 
 .btn-primary:hover {
+  background: #1e40af;
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.45);
+  box-shadow: 0 6px 16px rgba(29, 78, 216, 0.45);
 }
 
 .btn-secondary {
@@ -2021,5 +2049,140 @@ button, input, select, textarea {
   background: var(--primary-light);
   color: var(--primary);
 }
+
+/* ── Browser-Style Multi-Tab Viewer Bar ───────────────────────────────────────── */
+.browser-tab-bar {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  background: var(--bg-surface-elevated);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 8px;
+  gap: 4px;
+  user-select: none;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.tab-scroll-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  height: 100%;
+}
+.tab-scroll-container::-webkit-scrollbar {
+  display: none;
+}
+
+.app-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 180px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  position: relative;
+}
+
+.app-tab:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.app-tab.active {
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-weight: 700;
+  border-color: var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.app-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary);
+}
+
+.app-tab .tab-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.app-tab .tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 0;
+  margin-left: 2px;
+  transition: all 0.15s ease;
+}
+
+.app-tab:hover .tab-close-btn {
+  opacity: 1;
+}
+
+.tab-close-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.dashboard-tab {
+  border-right: 1px solid var(--border-color);
+  margin-right: 4px;
+}
+
+.new-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.new-tab-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+
 
 

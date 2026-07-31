@@ -35,7 +35,7 @@ export interface MainDirectory {
 }
 
 export interface ReadingSettings {
-  theme: 'dark' | 'light' | 'sepia' | 'nord';
+  theme: 'dark' | 'light' | 'sepia' | 'nord' | 'full-black';
   fontSize: number;
   lineHeight: number;
   fontFamily: string;
