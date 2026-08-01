@@ -35,6 +35,7 @@ interface SidebarProps {
   activeFile: FileItem | null;
   onSelectFile: (file: FileItem) => void;
   onSelectMainDirectory: (switchPath?: string) => void;
+  onRemoveVault: (vaultPath: string) => Promise<void>;
   onCreateNewNote: (folderPath?: string) => void;
   onCreateNewFolder: (parentFolderPath?: string) => void;
   onToggleFavorite: (fileId: string) => void;
@@ -51,6 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeFile,
   onSelectFile,
   onSelectMainDirectory,
+  onRemoveVault,
   onCreateNewNote,
   onCreateNewFolder,
   onToggleFavorite,
@@ -140,6 +142,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleCollapseAll = () => {
     setExpandedFolders({});
+  };
+
+  // Vault Removal Confirmation state
+  const [vaultToDelete, setVaultToDelete] = useState<{ name: string; path: string } | null>(null);
+  const [vaultConfirmNameInput, setVaultConfirmNameInput] = useState<string>('');
+
+  const promptRemoveVault = (vault: { name: string; path: string }, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setShowVaultDropdown(false);
+    setVaultToDelete(vault);
+    setVaultConfirmNameInput('');
+  };
+
+  const confirmVaultDelete = async () => {
+    if (!vaultToDelete) return;
+    if (vaultConfirmNameInput.trim() !== vaultToDelete.name.trim()) return;
+
+    const targetPath = vaultToDelete.path;
+    setVaultToDelete(null);
+    setVaultConfirmNameInput('');
+
+    await onRemoveVault(targetPath);
   };
 
   const sortItems = (items: FileItem[]): FileItem[] => {
@@ -332,14 +357,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Local Vault Directories
             </div>
 
-            {mainDir.allVaults && mainDir.allVaults.length > 0 ? (
-              mainDir.allVaults.map(vault => (
+            {(() => {
+              const vaultList = (mainDir.allVaults && mainDir.allVaults.length > 0)
+                ? mainDir.allVaults
+                : (mainDir.name ? [{ name: mainDir.name, path: mainDir.path, fileCount: counts.total }] : []);
+
+              if (vaultList.length === 0) {
+                return <div style={{ padding: '6px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>No vaults configured</div>;
+              }
+
+              return vaultList.map(vault => (
                 <div
                   key={vault.path}
                   onClick={() => {
                     setShowVaultDropdown(false);
                     onSelectMainDirectory(vault.path);
                   }}
+                  onContextMenu={(e) => promptRemoveVault(vault, e)}
+                  title="Click to switch vault | Right-click or click trash button to remove from NoteStack"
                   style={{
                     padding: '8px 10px',
                     borderRadius: 'var(--radius-sm)',
@@ -351,16 +386,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     justifyContent: 'space-between',
                     background: vault.path === mainDir.path ? 'var(--primary-light)' : 'transparent',
                     color: vault.path === mainDir.path ? 'var(--primary)' : 'var(--text-main)',
-                    marginBottom: 2
+                    marginBottom: 4
                   }}
                 >
-                  <span>📁 {vault.name}</span>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{vault.fileCount} files</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    📁 {vault.name}
+                  </span>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    {vault.fileCount !== undefined && (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{vault.fileCount} files</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => promptRemoveVault(vault, e)}
+                      title={`Remove ${vault.name} from NoteStack`}
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.14)',
+                        border: '1px solid rgba(239, 68, 68, 0.35)',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 24,
+                        height: 24,
+                        borderRadius: 6,
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#ef4444';
+                        e.currentTarget.style.color = '#ffffff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.14)';
+                        e.currentTarget.style.color = '#ef4444';
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-              ))
-            ) : (
-              <div style={{ padding: '6px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{mainDir.name}</div>
-            )}
+              ));
+            })()}
 
             <div style={{ borderTop: '1px solid var(--border-color)', marginTop: 6, paddingTop: 6 }}>
               <button
@@ -597,6 +665,76 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button type="button" className="tool-btn" style={{ padding: '8px 16px', fontWeight: 700 }} onClick={() => setItemToRename(null)}>Cancel</button>
               <button type="submit" className="btn-primary" style={{ padding: '8px 16px', fontWeight: 700 }}>Save</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Vault Removal Confirmation Modal */}
+      {vaultToDelete && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              confirmVaultDelete();
+            }}
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 24, maxWidth: 440, width: '100%', boxShadow: 'var(--shadow-lg)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(244,63,94,0.15)', color: 'var(--accent-rose)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <AlertTriangle size={20} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>Remove Vault from NoteStack?</h3>
+            </div>
+
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 14 }}>
+              This will remove the vault shortcut pointer for <strong style={{ color: 'var(--text-main)' }}>{vaultToDelete.name}</strong> from NoteStack.
+            </p>
+
+            <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '10px 12px', fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+              To confirm removal, please type <strong style={{ color: 'var(--accent-cyan)', userSelect: 'all' }}>{vaultToDelete.name}</strong> below:
+            </div>
+
+            <input
+              type="text"
+              className="search-input"
+              style={{ width: '100%', padding: '10px 14px', fontSize: '0.9rem', marginBottom: 20 }}
+              placeholder={vaultToDelete.name}
+              value={vaultConfirmNameInput}
+              onChange={e => setVaultConfirmNameInput(e.target.value)}
+              autoFocus
+            />
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button 
+                type="button" 
+                className="tool-btn" 
+                style={{ padding: '8px 16px', fontWeight: 700 }} 
+                onClick={() => {
+                  setVaultToDelete(null);
+                  setVaultConfirmNameInput('');
+                }}
+              >
+                Cancel
+              </button>
+
+              <button 
+                type="submit" 
+                disabled={vaultConfirmNameInput.trim() !== vaultToDelete.name.trim()}
+                style={{ 
+                  background: vaultConfirmNameInput.trim() === vaultToDelete.name.trim() ? '#ef4444' : 'var(--bg-surface-elevated)', 
+                  color: vaultConfirmNameInput.trim() === vaultToDelete.name.trim() ? '#ffffff' : 'var(--text-dim)', 
+                  border: 'none', 
+                  padding: '8px 18px', 
+                  fontWeight: 700, 
+                  borderRadius: 8,
+                  cursor: vaultConfirmNameInput.trim() === vaultToDelete.name.trim() ? 'pointer' : 'not-allowed',
+                  opacity: vaultConfirmNameInput.trim() === vaultToDelete.name.trim() ? 1 : 0.6,
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                Confirm Delete
+              </button>
             </div>
           </form>
         </div>

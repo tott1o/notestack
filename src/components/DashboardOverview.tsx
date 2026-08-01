@@ -95,6 +95,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const mouseWorldPosRef = useRef<{ x: number; y: number } | null>(null);
+  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+  const rotationSpeedFactorRef = useRef<number>(1.0);
 
   // Time-based Greeting & Current Date (Strictly No Emojis)
   const { greeting, currentDate } = useMemo(() => {
@@ -171,15 +173,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // Color mapping helper for file types in Galaxy Brain
   const getFileTypeColors = (type: string) => {
     switch (type) {
-      case 'md': return { color: '#6366f1', glow: 'rgba(99, 102, 241, 0.7)' };
-      case 'pdf': return { color: '#e11d48', glow: 'rgba(225, 29, 72, 0.7)' };
-      case 'pptx': return { color: '#ea580c', glow: 'rgba(234, 88, 12, 0.7)' };
-      case 'code': return { color: '#16a34a', glow: 'rgba(22, 163, 74, 0.7)' };
-      case 'csv': return { color: '#059669', glow: 'rgba(5, 150, 105, 0.7)' };
-      case 'docx': return { color: '#0284c7', glow: 'rgba(2, 132, 199, 0.7)' };
-      case 'image': return { color: '#d97706', glow: 'rgba(217, 119, 6, 0.7)' };
-      case 'video': return { color: '#9333ea', glow: 'rgba(147, 51, 234, 0.7)' };
-      case 'folder': return { color: '#7c3aed', glow: 'rgba(124, 58, 237, 0.8)' };
+      case 'md': return { color: '#6366f1', glow: 'rgba(99, 102, 241, 0.85)' };
+      case 'pdf': return { color: '#f43f5e', glow: 'rgba(244, 63, 94, 0.85)' };
+      case 'pptx': return { color: '#f97316', glow: 'rgba(249, 115, 22, 0.85)' };
+      case 'code': return { color: '#10b981', glow: 'rgba(16, 185, 129, 0.85)' };
+      case 'csv': return { color: '#14b8a6', glow: 'rgba(20, 184, 166, 0.85)' };
+      case 'docx': return { color: '#06b6d4', glow: 'rgba(6, 182, 212, 0.85)' };
+      case 'image': return { color: '#f59e0b', glow: 'rgba(245, 158, 11, 0.85)' };
+      case 'video': return { color: '#ec4899', glow: 'rgba(236, 72, 153, 0.85)' };
+      case 'folder': return { color: '#8b5cf6', glow: 'rgba(139, 92, 246, 0.85)' };
       default: return { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.7)' };
     }
   };
@@ -199,8 +201,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       vx: 0,
       vy: 0,
       radius: 26,
-      color: '#c084fc',
-      glowColor: 'rgba(192, 132, 252, 0.95)',
+      color: '#3b82f6',
+      glowColor: 'rgba(59, 130, 246, 0.95)',
       orbitRadius: 0,
       orbitAngle: 0,
       orbitSpeed: 0
@@ -233,12 +235,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           : startAngle + idx * (count > 1 ? angleSpan / (count - 1) : 0);
 
         if (item.type === 'folder') {
-          // Subfolder Hub (Dynamic Orbit Distance Proportional to File Count)
+          // Subfolder Hub (Staggered Concentric Orbit Radii to Prevent Overlap)
           const childCount = item.children ? item.children.length : 0;
-          const baseDist = depth === 1 ? 220 : 120;
-          const distMultiplier = depth === 1 ? 28 : 18;
-          const orbitDist = (baseDist + Math.min(childCount * distMultiplier, 220)) * responsiveScale;
-          const speed = 0.0004 * (depth % 2 === 0 ? 1 : -1);
+          const baseDist = depth === 1 ? 210 : 110;
+          const orbitDist = (baseDist + (idx * 38) + Math.min(childCount * 14, 120)) * responsiveScale;
+          const speed = (0.0032 / Math.sqrt(Math.max(60, orbitDist))) * (depth % 2 === 0 ? 1 : -1);
 
           nodeList.push({
             id: item.id,
@@ -270,10 +271,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             processItems(item.children, item.id, depth + 1, nodeAngle - subConeHalf, nodeAngle + subConeHalf);
           }
         } else {
-          // Document Star Node (Non-Crossing Sector Distribution)
+          // Document Star Node (Staggered Concentric Orbit Radii to Prevent Overlap)
           const { color, glow } = getFileTypeColors(item.type);
-          const orbitDist = (parentId === 'root-nucleus' ? 220 + (idx % 4) * 35 : 95 + (idx % 3) * 25) * responsiveScale;
-          const speed = 0.0005 * (idx % 2 === 0 ? 1 : -1);
+          const orbitDist = (parentId === 'root-nucleus' ? 190 + (idx * 28) : 80 + (idx * 22)) * responsiveScale;
+          const speed = (0.0038 / Math.sqrt(Math.max(50, orbitDist))) * (idx % 2 === 0 ? 1 : -1);
 
           nodeList.push({
             id: item.id,
@@ -313,7 +314,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const draggedNodeRef = useRef<GalaxyNode | null>(null);
   const dragNodeOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const hasDraggedNodeRef = useRef<boolean>(false);
-  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
 
   // Compute Connected Neighbor Node IDs for Smart Hover Highlighting
   const activeNeighborIds = useMemo(() => {
@@ -363,8 +363,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       ctx.save();
       ctx.clearRect(0, 0, width, height);
 
-      // Unified Deep Obsidian Canvas Fill (#090d16 - Seamless matching container background)
-      ctx.fillStyle = '#090d16';
+      // Always Dark Cosmic Black Canvas Fill for Obsidian Space Brain in every theme
+      ctx.fillStyle = '#050508';
       ctx.fillRect(0, 0, width, height);
 
       const centerX = width / 2 + panOffset.x;
@@ -403,13 +403,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         });
       }
 
+      // Smooth inertial orbital rotation velocity ramping
+      const targetSpeedMult = autoRotate ? 1.0 : 0.0;
+      rotationSpeedFactorRef.current += (targetSpeedMult - rotationSpeedFactorRef.current) * 0.05;
+      const speedMult = rotationSpeedFactorRef.current;
       const now = Date.now();
 
       nodes.forEach(node => {
         if (node.id === 'root-nucleus') return;
 
-        if (autoRotate) {
-          node.orbitAngle += node.orbitSpeed;
+        if (speedMult > 0.001) {
+          node.orbitAngle += node.orbitSpeed * speedMult;
         }
 
         const parent = nodes.find(n => n.id === node.parentId);
@@ -463,7 +467,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         node.y += (targetY - node.y) * 0.22;
       });
 
-      // Soft Repulsion Solver for fluid node breathing room
+      // Circle Anti-Overlap Boundary Constraint (Guarantees zero node overlap without jitter)
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const a = nodes[i];
@@ -472,25 +476,26 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
           const dx = b.x - a.x;
           const dy = b.y - a.y;
-          const dist = Math.hypot(dx, dy);
-          const minDist = a.radius + b.radius + 50;
+          const dist = Math.hypot(dx, dy) || 0.1;
+          const minDist = a.radius + b.radius + 14; // 14px clear boundary cushion
 
-          if (dist < minDist && dist > 0.1) {
-            const overlap = (minDist - dist) / dist * 0.025;
-            const pushX = dx * overlap;
-            const pushY = dy * overlap;
+          if (dist < minDist) {
+            const overlap = (minDist - dist) * 0.5;
+            const nx = dx / dist;
+            const ny = dy / dist;
 
             if (!a.isMagnetLocked && !a.isDragged) {
-              a.x -= pushX;
-              a.y -= pushY;
+              a.x -= nx * overlap;
+              a.y -= ny * overlap;
             }
             if (!b.isMagnetLocked && !b.isDragged) {
-              b.x += pushX;
-              b.y += pushY;
+              b.x += nx * overlap;
+              b.y += ny * overlap;
             }
           }
         }
       }
+
 
       // 3. Draw Orbit Guide Rings for Folders
       nodes.filter(n => n.type === 'folder' && n.id !== 'root-nucleus').forEach(folder => {
@@ -850,7 +855,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             border: '1px solid var(--border-color)',
             position: 'relative',
             overflow: 'hidden',
-            background: '#090d16',
+            background: '#050508',
             display: 'flex'
           }}
         >

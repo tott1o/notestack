@@ -218,7 +218,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   };
 
   return (
-    <div className="content-area" style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+    <div className="content-area" style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-main)' }}>
       {/* Header Bar with Dual Engine Switcher, Zoom & Auto-Save Indicator */}
       <div className="editor-toolbar" style={{ padding: '8px 16px', background: 'var(--bg-surface)', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.88rem', color: 'var(--text-main)' }}>
@@ -312,7 +312,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
       </div>
 
       {/* Main Viewport */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#090d16' }}>
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'var(--bg-main)' }}>
         {engineMode === 'canvas' ? (
           <div 
             ref={containerRef}

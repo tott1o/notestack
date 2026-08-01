@@ -209,7 +209,7 @@ export async function ensureFileContentLoaded(fileItem: FileItem): Promise<FileI
     if (fileItem.type === 'md' || fileItem.type === 'code' || fileItem.type === 'csv') {
       const text = await window.electronAPI.readFileText(fileItem.fullPath);
       if (text !== null) fileItem.content = text;
-    } else if (fileItem.type === 'pdf' || fileItem.type === 'docx' || fileItem.type === 'image' || fileItem.type === 'video') {
+    } else if (fileItem.type === 'pdf' || fileItem.type === 'docx' || fileItem.type === 'pptx' || fileItem.type === 'image' || fileItem.type === 'video') {
       const buffer = await window.electronAPI.readFileBuffer(fileItem.fullPath);
       if (buffer) {
         fileItem.arrayBuffer = buffer;
@@ -218,7 +218,21 @@ export async function ensureFileContentLoaded(fileItem: FileItem): Promise<FileI
         fileItem.url = URL.createObjectURL(blob);
       }
     }
+  } else if (fileItem.handle && 'getFile' in fileItem.handle) {
+    try {
+      const fileData = await (fileItem.handle as any).getFile();
+      if (fileItem.type === 'md' || fileItem.type === 'code' || fileItem.type === 'csv') {
+        fileItem.content = await fileData.text();
+      } else {
+        const buffer = await fileData.arrayBuffer();
+        fileItem.arrayBuffer = buffer;
+        fileItem.url = URL.createObjectURL(fileData);
+      }
+    } catch (err) {
+      console.error("Error reading file handle in ensureFileContentLoaded:", err);
+    }
   }
+
   return fileItem;
 }
 
@@ -393,6 +407,36 @@ export async function renameItemOnDisk(item: FileItem, newName: string): Promise
   } catch (err) {
     console.error("Failed to rename item on disk:", err);
     return { success: false };
+  }
+}
+
+export async function removeVaultFromSavedList(vaultPath: string): Promise<{ allVaults: MainDirectorySummary[]; activePath: string | null }> {
+  if (window.electronAPI?.removeSavedVault) {
+    try {
+      const res = await window.electronAPI.removeSavedVault(vaultPath);
+      if (res && res.updatedVaults) {
+        return { allVaults: res.updatedVaults, activePath: res.activePath };
+      } else if (Array.isArray(res)) {
+        return { allVaults: res, activePath: res.length > 0 ? res[0].path : null };
+      }
+    } catch (err) {
+      console.error("Error removing saved vault in Electron:", err);
+    }
+  }
+
+  try {
+    const savedHandles = await idbGet<Array<{ name: string; path: string; handle: FileSystemDirectoryHandle }>>(IDB_VAULTS_KEY) || [];
+    const updated = savedHandles.filter(h => h.path !== vaultPath);
+    await idbSet(IDB_VAULTS_KEY, updated);
+    const activePath = updated.length > 0 ? updated[0].path : null;
+    await idbSet(IDB_ACTIVE_PATH_KEY, activePath);
+    return {
+      allVaults: updated.map(h => ({ name: h.name, path: h.path, fileCount: 0 })),
+      activePath
+    };
+  } catch (err) {
+    console.error("Error removing saved vault in IDB:", err);
+    return { allVaults: [], activePath: null };
   }
 }
 

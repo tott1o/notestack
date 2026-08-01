@@ -1,6 +1,7 @@
 import { marked } from 'marked';
 import katex from 'katex';
 import type { Flashcard, TableOfContentsItem } from '../types';
+import { highlightCodeSyntax } from './syntaxHighlighter';
 
 // Standardized Markdown Renderer (GitHub Flavored Markdown & Obsidian Specs)
 const renderer = new marked.Renderer();
@@ -11,12 +12,7 @@ renderer.code = function({ text = '', lang }: { text?: string; lang?: string }) 
   const language = (lang || 'code').toUpperCase();
   const lines = safeText.split('\n');
   const lineCount = lines.length;
-  const escapedText = safeText
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+  const highlightedCode = highlightCodeSyntax(safeText, lang || 'code');
 
   const lineNums = lines.map((_, i) => `<span class="code-ln">${i + 1}</span>`).join('\n');
 
@@ -41,7 +37,7 @@ renderer.code = function({ text = '', lang }: { text?: string; lang?: string }) 
       </div>
       <div class="code-terminal-body">
         <div class="code-terminal-gutter">${lineNums}</div>
-        <pre class="code-terminal-pre"><code>${escapedText}</code></pre>
+        <pre class="code-terminal-pre"><code>${highlightedCode}</code></pre>
       </div>
     </div>
   `;

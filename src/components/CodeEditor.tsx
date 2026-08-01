@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Code2, Copy, Check, Save } from 'lucide-react';
 import type { FileItem } from '../types';
 
 import { getFileState, saveFileState } from '../utils/stateMemory';
+import { highlightCodeSyntax } from '../utils/syntaxHighlighter';
 
 interface CodeEditorProps {
   file: FileItem;
@@ -16,10 +17,15 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
   const [isSaved, setIsSaved] = useState<boolean>(true);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fileKey = file.fullPath || file.id;
+
+  const highlightedHtml = useMemo(() => {
+    return highlightCodeSyntax(code, file.extension || file.type || 'code');
+  }, [code, file.extension, file.type]);
 
   // Restore scroll position instantly before paint when active file changes
   useLayoutEffect(() => {
@@ -29,9 +35,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
     const saved = getFileState(fileKey);
     if (saved.scrollTop) {
       if (textareaRef.current) textareaRef.current.scrollTop = saved.scrollTop;
+      if (preRef.current) preRef.current.scrollTop = saved.scrollTop;
       if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = saved.scrollTop;
       requestAnimationFrame(() => {
         if (textareaRef.current) textareaRef.current.scrollTop = saved.scrollTop!;
+        if (preRef.current) preRef.current.scrollTop = saved.scrollTop!;
         if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = saved.scrollTop!;
       });
     }
@@ -43,11 +51,15 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
     };
   }, []);
 
-  // Synchronize Line Numbers scroll with Textarea scroll & save position
+  // Synchronize Line Numbers & Highlighted Pre scroll with Textarea scroll
   const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    const scrollTop = e.currentTarget.scrollTop;
+    const { scrollTop, scrollLeft } = e.currentTarget;
     if (lineNumbersRef.current) {
       lineNumbersRef.current.scrollTop = scrollTop;
+    }
+    if (preRef.current) {
+      preRef.current.scrollTop = scrollTop;
+      preRef.current.scrollLeft = scrollLeft;
     }
     saveFileState(fileKey, { scrollTop });
   };
@@ -118,16 +130,25 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
           ))}
         </div>
 
-        {/* Code Textarea */}
-        <textarea
-          ref={textareaRef}
-          className="code-editor-textarea"
-          style={{ fontSize: `${fontSize}px` }}
-          placeholder="// Type your code here..."
-          value={code}
-          onChange={handleChange}
-          onScroll={handleScroll}
-        />
+        {/* Syntax Highlighted Viewport */}
+        <div className="code-editor-viewport">
+          <pre 
+            ref={preRef}
+            className="code-editor-pre"
+            style={{ fontSize: `${fontSize}px` }}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml + '\n' }}
+          />
+          <textarea
+            ref={textareaRef}
+            className="code-editor-textarea"
+            style={{ fontSize: `${fontSize}px` }}
+            placeholder="// Type your code here..."
+            value={code}
+            onChange={handleChange}
+            onScroll={handleScroll}
+            spellCheck={false}
+          />
+        </div>
       </div>
     </div>
   );

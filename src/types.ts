@@ -87,6 +87,7 @@ declare global {
       scanDirectory: (path: string) => Promise<any>;
       getSavedDirectory: () => Promise<any>;
       saveVaultList: (vaults: any[]) => Promise<any>;
+      removeSavedVault: (vaultPath: string) => Promise<any>;
       readFileText: (path: string) => Promise<string | null>;
       readFileBuffer: (path: string) => Promise<ArrayBuffer | null>;
       writeFileText: (path: string, content: string) => Promise<boolean>;

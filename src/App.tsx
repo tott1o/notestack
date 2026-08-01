@@ -27,6 +27,7 @@ import {
   ensureFileContentLoaded,
   deleteItemFromDisk,
   renameItemOnDisk,
+  removeVaultFromSavedList,
   getFileType
 } from './utils/fileSystem';
 import { getGlobalSession, saveGlobalSession } from './utils/stateMemory';
@@ -123,6 +124,34 @@ export function App() {
       }
     } catch (err) {
       console.error("Failed to select local directory:", err);
+    }
+  };
+
+  const handleRemoveVault = async (vaultPath: string) => {
+    try {
+      const { allVaults, activePath } = await removeVaultFromSavedList(vaultPath);
+      if (vaultPath === mainDir.path) {
+        if (activePath) {
+          const loaded = await openMainDirectoryFromDisk(activePath);
+          if (loaded) {
+            setMainDir({ ...loaded, allVaults });
+          } else {
+            setMainDir({ ...EMPTY_MAIN_DIRECTORY, allVaults });
+          }
+        } else {
+          setMainDir({ ...EMPTY_MAIN_DIRECTORY, allVaults: [] });
+        }
+        setActiveFile(null);
+        setOpenTabs([]);
+        setViewMode('dashboard');
+      } else {
+        setMainDir(prev => ({
+          ...prev,
+          allVaults
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to remove vault:", err);
     }
   };
 
@@ -431,6 +460,7 @@ export function App() {
           activeFile={activeFile}
           onSelectFile={handleSelectFile}
           onSelectMainDirectory={handleSelectMainDirectory}
+          onRemoveVault={handleRemoveVault}
           onCreateNewNote={triggerOpenCreateModal}
           onCreateNewFolder={triggerOpenCreateFolderModal}
           onToggleFavorite={handleToggleFavorite}

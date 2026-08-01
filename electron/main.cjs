@@ -346,6 +346,17 @@ ipcMain.handle('config:saveVaultList', async (_, vaults) => {
   return true;
 });
 
+ipcMain.handle('config:removeSavedVault', async (_, vaultPath) => {
+  const cfg = getSavedConfig();
+  const updatedVaults = (cfg.savedVaults || []).filter(v => v.path !== vaultPath);
+  let activePath = cfg.activePath;
+  if (activePath === vaultPath) {
+    activePath = updatedVaults.length > 0 ? updatedVaults[0].path : null;
+  }
+  saveConfig({ savedVaults: updatedVaults, activePath });
+  return { updatedVaults, activePath };
+});
+
 app.whenReady().then(() => {
   createWindow();
 

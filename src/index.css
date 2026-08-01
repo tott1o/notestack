@@ -2184,5 +2184,66 @@ button, input, select, textarea {
   border-color: var(--border-color);
 }
 
+/* ── Multilingual Code Syntax Highlighting (VS Code / GitHub Dark Specs) ────────── */
+.hl-keyword { color: #ff7b72; font-weight: 600; }
+.hl-type { color: #79c0ff; font-weight: 600; }
+.hl-builtin { color: #d2a8ff; font-weight: 600; }
+.hl-function { color: #d2a8ff; }
+.hl-string { color: #a5d6ff; }
+.hl-number { color: #79c0ff; font-weight: 600; }
+.hl-comment { color: #8b949e; font-style: italic; }
+
+/* ── Live Code Editor Viewport Layering ────────────────────────────────────────── */
+.code-editor-viewport {
+  flex: 1;
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-main);
+}
+
+.code-editor-pre,
+.code-editor-textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  margin: 0;
+  box-sizing: border-box;
+  font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  line-height: 1.6;
+  tab-size: 2;
+  word-wrap: normal;
+  white-space: pre;
+}
+
+.code-editor-pre {
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+  color: var(--text-main);
+  background: transparent;
+  border: none;
+}
+
+.code-editor-textarea {
+  z-index: 2;
+  color: transparent;
+  background: transparent;
+  caret-color: #58a6ff;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: auto;
+}
+
+.code-editor-textarea::selection {
+  background: rgba(56, 139, 253, 0.35);
+  color: transparent;
+}
+
 
 
