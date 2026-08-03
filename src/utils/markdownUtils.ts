@@ -43,15 +43,15 @@ renderer.code = function({ text = '', lang }: { text?: string; lang?: string }) 
   `;
 };
 
-// ─── Standard Heading Hierarchy (H1 – H6) ────────────────────────────────────
 renderer.heading = function({ text = '', depth }: { text?: string; depth: number }) {
   const safeText = text || 'heading';
   const cleanText = safeText.replace(/<[^>]*>/g, '');
-  const id = `heading-${cleanText.toLowerCase().replace(/[^\w]+/g, '-')}`;
+  const slug = cleanText.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '');
+  const headingId = `heading-${slug}`;
 
   return `
-    <div class="study-heading-section study-h${depth}-section" id="${id}">
-      <h${depth} class="study-heading study-h${depth}">${safeText}</h${depth}>
+    <div class="study-heading-section study-h${depth}-section" id="${headingId}">
+      <h${depth} class="study-heading study-h${depth}" id="${slug}">${safeText}</h${depth}>
     </div>
   `;
 };

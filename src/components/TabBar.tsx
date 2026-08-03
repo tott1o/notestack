@@ -21,6 +21,7 @@ interface TabBarProps {
   activeFile: FileItem | null;
   onSelectTab: (file: FileItem) => void;
   onCloseTab: (fileId: string, e: React.MouseEvent) => void;
+  onCloseAllTabs?: () => void;
   onGoToDashboard: () => void;
   isDashboardActive: boolean;
   onNewNoteClick: () => void;
@@ -36,6 +37,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   activeFile,
   onSelectTab,
   onCloseTab,
+  onCloseAllTabs,
   onGoToDashboard,
   isDashboardActive,
   onNewNoteClick,
@@ -204,6 +206,33 @@ export const TabBar: React.FC<TabBarProps> = ({
           <Plus size={15} />
         </button>
       </div>
+
+      {/* Close All Open Tabs Button */}
+      {onCloseAllTabs && openTabs.length > 0 && (
+        <button
+          className="tool-btn"
+          onClick={onCloseAllTabs}
+          style={{
+            padding: '4px 8px',
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            color: 'var(--accent-rose, #f43f5e)',
+            background: 'rgba(244, 63, 94, 0.08)',
+            border: '1px solid rgba(244, 63, 94, 0.25)',
+            borderRadius: 'var(--radius-md)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            marginRight: 8,
+            cursor: 'pointer',
+            flexShrink: 0
+          }}
+          title="Close All Open Tabs"
+        >
+          <X size={13} />
+          Close All ({openTabs.length})
+        </button>
+      )}
 
       {/* Dual Screen Split View Controls (1 Pane vs 2 Panes Split Screen) */}
       {onChangeSplitCount && (

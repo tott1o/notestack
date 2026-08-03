@@ -27,6 +27,8 @@ export interface GlobalSessionState {
   lastViewMode?: string;
   expandedFolders?: Record<string, boolean>;
   selectedFilter?: string;
+  openTabPaths?: string[];
+  activeTabId?: string;
 }
 
 const GLOBAL_SESSION_KEY = 'notestack_global_session_v1';

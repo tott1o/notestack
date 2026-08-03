@@ -793,6 +793,17 @@ button, input, select, textarea {
 @keyframes spin {
   100% { transform: rotate(360deg); }
 }
+.tool-btn.save-pending {
+  animation: pulse-save 1.5s ease-in-out infinite;
+}
+@keyframes pulse-save {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.tool-btn:disabled {
+  cursor: not-allowed;
+  pointer-events: auto;
+}
 
 /* ── Workspace Body Layout ─────────────────────────────────────────────────── */
 .viewer-workspace {
@@ -3329,6 +3340,37 @@ button, input, select, textarea {
 .ai-send-btn.active:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(168, 85, 247, 0.5);
+}
+
+.ai-send-btn.stop-btn {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  cursor: pointer !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5) !important;
+}
+.ai-send-btn.stop-btn:hover {
+  background: #dc2626 !important;
+  transform: scale(1.05) !important;
+}
+
+.ai-stop-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ai-stop-inline-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #f87171;
 }
 
 .ai-input-hint {

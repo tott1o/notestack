@@ -24,7 +24,10 @@ import {
   AlertTriangle,
   Edit3,
   Presentation,
-  Filter
+  Filter,
+  Copy,
+  Scissors,
+  Clipboard
 } from 'lucide-react';
 import type { FileItem, MainDirectory } from '../types';
 import { getGlobalSession, saveGlobalSession } from '../utils/stateMemory';
@@ -37,6 +40,8 @@ interface SidebarProps {
   onRemoveVault: (vaultPath: string) => Promise<void>;
   onCreateNewNote: (folderPath?: string) => void;
   onCreateNewFolder: (parentFolderPath?: string) => void;
+  onCopyItem?: (item: FileItem, targetFolderPath?: string) => Promise<void>;
+  onMoveItem?: (item: FileItem, targetFolderPath?: string) => Promise<void>;
   onToggleFavorite: (fileId: string) => void;
   onDeleteItem: (item: FileItem) => void;
   onRenameItem: (item: FileItem, newName: string) => void;
@@ -55,6 +60,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRemoveVault,
   onCreateNewNote,
   onCreateNewFolder,
+  onCopyItem,
+  onMoveItem,
   onToggleFavorite,
   onDeleteItem,
   onRenameItem,
@@ -82,6 +89,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Rename Modal state
   const [itemToRename, setItemToRename] = useState<FileItem | null>(null);
   const [renameInputValue, setRenameInputValue] = useState<string>('');
+
+  // Clipboard State (Copy / Cut)
+  const [clipboardItem, setClipboardItem] = useState<{ item: FileItem; mode: 'copy' | 'cut' } | null>(null);
 
   // Context Menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -634,6 +644,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </>
           )}
+
+          <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />
+
+          {/* Copy & Cut Options */}
+          <div 
+            className="tool-btn" 
+            style={{ padding: '6px 10px', fontSize: '0.8rem', width: '100%', justifyContent: 'flex-start' }}
+            onClick={() => {
+              setClipboardItem({ item: contextMenu.item, mode: 'copy' });
+              setContextMenu(null);
+            }}
+          >
+            <Copy size={14} /> Copy File (Ctrl+C)
+          </div>
+
+          <div 
+            className="tool-btn" 
+            style={{ padding: '6px 10px', fontSize: '0.8rem', width: '100%', justifyContent: 'flex-start' }}
+            onClick={() => {
+              setClipboardItem({ item: contextMenu.item, mode: 'cut' });
+              setContextMenu(null);
+            }}
+          >
+            <Scissors size={14} /> Cut File (Ctrl+X)
+          </div>
+
+          {/* Paste Option */}
+          <div 
+            className={`tool-btn ${!clipboardItem ? 'disabled' : ''}`}
+            style={{ 
+              padding: '6px 10px', 
+              fontSize: '0.8rem', 
+              width: '100%', 
+              justifyContent: 'flex-start',
+              opacity: clipboardItem ? 1 : 0.4,
+              pointerEvents: clipboardItem ? 'auto' : 'none'
+            }}
+            onClick={async () => {
+              if (!clipboardItem) return;
+              const targetFolderPath = contextMenu.item.type === 'folder' 
+                ? contextMenu.item.path 
+                : (contextMenu.item.path && contextMenu.item.path.includes('/') ? contextMenu.item.path.substring(0, contextMenu.item.path.lastIndexOf('/')) : undefined);
+              
+              if (clipboardItem.mode === 'copy' && onCopyItem) {
+                await onCopyItem(clipboardItem.item, targetFolderPath);
+              } else if (clipboardItem.mode === 'cut' && onMoveItem) {
+                await onMoveItem(clipboardItem.item, targetFolderPath);
+                setClipboardItem(null);
+              }
+              setContextMenu(null);
+            }}
+          >
+            <Clipboard size={14} /> Paste {clipboardItem ? `("${clipboardItem.item.name}")` : ''} (Ctrl+V)
+          </div>
 
           <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />
 

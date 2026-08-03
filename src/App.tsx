@@ -42,7 +42,24 @@ export function App() {
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [showFlashcards, setShowFlashcards] = useState<boolean>(false);
   const [showQuickSearch, setShowQuickSearch] = useState<boolean>(false);
-  const [isAIChatOpen, setIsAIChatOpen] = useState<boolean>(false);
+  const AI_PANEL_OPEN_KEY = 'notestack_ai_panel_open_v1';
+
+  const [isAIChatOpen, setIsAIChatOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(AI_PANEL_OPEN_KEY);
+      return saved !== null ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AI_PANEL_OPEN_KEY, JSON.stringify(isAIChatOpen));
+    } catch (err) {
+      console.error("Failed to save AI panel open state:", err);
+    }
+  }, [isAIChatOpen]);
   
   // Sidebar Resizing & Visibility State
   const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);
@@ -81,49 +98,108 @@ export function App() {
     speedReadingWpm: 300
   });
 
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+  const isSessionLoadedRef = useRef<boolean>(false);
+
   useEffect(() => {
     async function loadSavedDirectory() {
-      const savedDir = await getSavedMainDirectoryOnLaunch();
-      if (savedDir) {
-        setMainDir(savedDir);
+      try {
+        const savedDir = await getSavedMainDirectoryOnLaunch();
+        if (savedDir) {
+          setMainDir(savedDir);
 
-        const session = getGlobalSession();
-        if (session.lastActiveFilePath) {
-          const findFile = (items: FileItem[]): FileItem | null => {
+          const session = getGlobalSession();
+
+          const flattenAllFiles = (items: FileItem[]): FileItem[] => {
+            const res: FileItem[] = [];
             for (const item of items) {
-              if (item.fullPath === session.lastActiveFilePath || item.path === session.lastActiveFilePath) {
-                return item;
-              }
-              if (item.children) {
-                const found = findFile(item.children);
-                if (found) return found;
-              }
+              if (item.type !== 'folder') res.push(item);
+              if (item.children) res.push(...flattenAllFiles(item.children));
             }
-            return null;
+            return res;
           };
 
-          const matched = findFile(savedDir.files);
-          if (matched) {
-            const loaded = await ensureFileContentLoaded(matched);
-            setActiveFile(loaded);
-            if (session.lastViewMode) {
-              setViewMode(session.lastViewMode as ViewMode);
-            } else {
-              setViewMode(loaded.type === 'md' ? 'split' : 'preview');
+          const allVaultFiles = flattenAllFiles(savedDir.files);
+          const normalizePath = (p?: string) => (p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+
+          // 1. Restore all open tabs if openTabPaths exist
+          if (session.openTabPaths && session.openTabPaths.length > 0) {
+            const restoredTabs: FileItem[] = [];
+            for (const pathKey of session.openTabPaths) {
+              const matched = allVaultFiles.find(item => 
+                normalizePath(item.fullPath) === normalizePath(pathKey) ||
+                normalizePath(item.path) === normalizePath(pathKey) ||
+                item.id === pathKey ||
+                normalizePath(item.name) === normalizePath(pathKey)
+              );
+              if (matched) {
+                const loaded = await ensureFileContentLoaded(matched);
+                restoredTabs.push(loaded);
+              }
+            }
+
+            if (restoredTabs.length > 0) {
+              setOpenTabs(restoredTabs);
+
+              let activeToSet = restoredTabs[0];
+              if (session.lastActiveFilePath) {
+                const activeMatched = restoredTabs.find(t => 
+                  normalizePath(t.fullPath) === normalizePath(session.lastActiveFilePath) ||
+                  normalizePath(t.path) === normalizePath(session.lastActiveFilePath)
+                );
+                if (activeMatched) activeToSet = activeMatched;
+              }
+
+              setActiveFile(activeToSet);
+              setPaneActiveFileIds([activeToSet.tabId || activeToSet.id, null]);
+
+              if (session.lastViewMode) {
+                setViewMode(session.lastViewMode as ViewMode);
+              } else {
+                setViewMode(activeToSet.type === 'md' ? 'split' : 'preview');
+              }
+              isSessionLoadedRef.current = true;
+              return;
+            }
+          }
+
+          // Fallback: restore single last active file if openTabPaths was not saved yet
+          if (session.lastActiveFilePath) {
+            const matched = allVaultFiles.find(item => 
+              normalizePath(item.fullPath) === normalizePath(session.lastActiveFilePath) ||
+              normalizePath(item.path) === normalizePath(session.lastActiveFilePath)
+            );
+            if (matched) {
+              const loaded = await ensureFileContentLoaded(matched);
+              setActiveFile(loaded);
+              setOpenTabs([loaded]);
+              setPaneActiveFileIds([loaded.tabId || loaded.id, null]);
+              if (session.lastViewMode) {
+                setViewMode(session.lastViewMode as ViewMode);
+              } else {
+                setViewMode(loaded.type === 'md' ? 'split' : 'preview');
+              }
             }
           }
         }
+      } finally {
+        isSessionLoadedRef.current = true;
+        setIsInitialLoading(false);
       }
     }
     loadSavedDirectory();
   }, []);
 
   useEffect(() => {
+    if (!isSessionLoadedRef.current) return; // Prevent overwriting stored session on initial mount!
+
     saveGlobalSession({
       lastActiveFilePath: activeFile ? (activeFile.fullPath || activeFile.path) : undefined,
-      lastViewMode: viewMode
+      lastViewMode: viewMode,
+      openTabPaths: openTabs.map(t => t.fullPath || t.path || t.id),
+      activeTabId: activeFile ? (activeFile.tabId || activeFile.id) : undefined
     });
-  }, [activeFile, viewMode]);
+  }, [activeFile, viewMode, openTabs]);
 
   useEffect(() => {
     document.body.setAttribute('data-theme', settings.theme);
@@ -171,21 +247,23 @@ export function App() {
   };
 
   const handleOpenInNewTab = useCallback(async (file: FileItem) => {
-    const loadedFile = await ensureFileContentLoaded(file);
+    // Skip disk read if content is already in memory
+    const loadedFile = (file.content || file.arrayBuffer || file.url) 
+      ? file 
+      : await ensureFileContentLoaded(file);
     const uniqueTabId = `${loadedFile.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const tabInstance: FileItem = {
       ...loadedFile,
       tabId: uniqueTabId
     };
     
+    // Batch all state updates together to avoid multiple re-renders
+    const targetPane = splitCount === 1 ? 0 : activePaneIdx;
     setOpenTabs(prev => [...prev, tabInstance]);
     setActiveFile(tabInstance);
-
-    const targetPane = splitCount === 1 ? 0 : activePaneIdx;
     if (splitCount === 1) {
       setActivePaneIdx(0);
     }
-
     setPaneActiveFileIds(prev => {
       const next = [...prev];
       next[targetPane] = uniqueTabId;
@@ -215,15 +293,29 @@ export function App() {
   }, [activeFile, handleOpenInNewTab]);
 
   const handleSelectFile = async (file: FileItem) => {
-    const loadedFile = await ensureFileContentLoaded(file);
+    const loadedFile = (file.content || file.arrayBuffer || file.url) 
+      ? file 
+      : await ensureFileContentLoaded(file);
+
+    let activeTabInstance: FileItem = loadedFile;
+
     setOpenTabs(prev => {
-      const exists = prev.some(t => (t.tabId || t.id) === (loadedFile.tabId || loadedFile.id));
-      if (exists) {
-        return prev.map(t => (t.tabId || t.id) === (loadedFile.tabId || loadedFile.id) ? loadedFile : t);
+      const existingTab = prev.find(t => 
+        t.id === loadedFile.id || 
+        (t.fullPath && loadedFile.fullPath && t.fullPath === loadedFile.fullPath) ||
+        (t.path && loadedFile.path && t.path === loadedFile.path) ||
+        t.name === loadedFile.name
+      );
+
+      if (existingTab) {
+        activeTabInstance = { ...existingTab, content: loadedFile.content ?? existingTab.content };
+        return prev.map(t => (t.tabId || t.id) === (activeTabInstance.tabId || activeTabInstance.id) ? activeTabInstance : t);
       }
+
       return [...prev, loadedFile];
     });
-    setActiveFile(loadedFile);
+
+    setActiveFile(activeTabInstance);
     
     // In Single View mode, always update Pane 0 and set activePaneIdx = 0
     const targetPane = splitCount === 1 ? 0 : activePaneIdx;
@@ -233,7 +325,7 @@ export function App() {
 
     setPaneActiveFileIds(prev => {
       const next = [...prev];
-      next[targetPane] = loadedFile.tabId || loadedFile.id;
+      next[targetPane] = activeTabInstance.tabId || activeTabInstance.id;
       return next;
     });
     setViewMode('preview');
@@ -298,6 +390,16 @@ export function App() {
     setPaneActiveFileIds(prev => prev.map(id => id === tabKey ? null : id));
   };
 
+  const handleCloseAllTabs = useCallback(() => {
+    setOpenTabs([]);
+    setActiveFile(null);
+    setPaneActiveFileIds([null, null]);
+    if (splitCount === 2) {
+      setSplitCount(1);
+    }
+    setViewMode('dashboard');
+  }, [splitCount]);
+
   // Enforce automatic single-screen view constraint if only 1 tab is open
   useEffect(() => {
     if (openTabs.length <= 1 && splitCount === 2) {
@@ -337,6 +439,50 @@ export function App() {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isSidebarVisible, sidebarWidth]);
+
+  const handleFileContentUpdated = useCallback((filePathOrName: string, newContent: string) => {
+    // 1. Update openTabs
+    setOpenTabs(prev => prev.map(tab => {
+      const match = (tab.fullPath && tab.fullPath === filePathOrName) ||
+                    (tab.path && tab.path === filePathOrName) ||
+                    tab.name === filePathOrName;
+      if (match) {
+        return { ...tab, content: newContent };
+      }
+      return tab;
+    }));
+
+    // 2. Update activeFile
+    setActiveFile(prev => {
+      if (!prev) return null;
+      const match = (prev.fullPath && prev.fullPath === filePathOrName) ||
+                    (prev.path && prev.path === filePathOrName) ||
+                    prev.name === filePathOrName;
+      if (match) {
+        return { ...prev, content: newContent };
+      }
+      return prev;
+    });
+
+    // 3. Update mainDir tree
+    setMainDir(prev => {
+      const updateFilesRecursive = (items: FileItem[]): FileItem[] => {
+        return items.map(item => {
+          const match = (item.fullPath && item.fullPath === filePathOrName) ||
+                        (item.path && item.path === filePathOrName) ||
+                        item.name === filePathOrName;
+          if (match) {
+            return { ...item, content: newContent };
+          }
+          if (item.type === 'folder' && item.children) {
+            return { ...item, children: updateFilesRecursive(item.children) };
+          }
+          return item;
+        });
+      };
+      return { ...prev, files: updateFilesRecursive(prev.files) };
+    });
+  }, []);
 
   const handleContentChange = useCallback((newContent: string) => {
     if (!activeFile) return;
@@ -382,54 +528,74 @@ export function App() {
     if (!title || !title.trim()) return;
 
     const newFile = await createNewMarkdownFile(mainDir, title.trim(), targetFolderPath);
+    
     if (initialText) {
+      // Only write to disk if the AI content differs from the template content
+      // that createNewMarkdownFile already wrote
       newFile.content = initialText;
-      await saveFileToDisk(newFile, initialText, mainDir.path);
+      if (newFile.fullPath && window.electronAPI?.writeFileText) {
+        // Direct Electron write is faster than saveFileToDisk for known fullPath
+        await window.electronAPI.writeFileText(newFile.fullPath, initialText);
+      } else {
+        await saveFileToDisk(newFile, initialText, mainDir.path);
+      }
     }
 
+    // Update tree + open tab in one synchronous block
     setMainDir(prev => {
-      const targetFolderToUse = (newFile.moduleName || targetFolderPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      let folderPathToMatch = (targetFolderPath || newFile.moduleName || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      if (!folderPathToMatch && newFile.path && newFile.path.includes('/')) {
+        folderPathToMatch = newFile.path.substring(0, newFile.path.lastIndexOf('/')).replace(/^\/+|\/+$/g, '');
+      }
 
-      const addFileToTree = (items: FileItem[]): FileItem[] => {
-        if (!targetFolderToUse) {
-          const filtered = items.filter(c => c.id !== newFile.id && c.path !== newFile.path);
-          return [...filtered, newFile];
-        }
+      if (!folderPathToMatch) {
+        const filtered = prev.files.filter(c => c.id !== newFile.id && c.path !== newFile.path);
+        return { ...prev, files: [...filtered, newFile] };
+      }
 
-        let inserted = false;
-        const updated = items.map(item => {
+      let insertedSuccessfully = false;
+
+      const addFileRecursive = (items: FileItem[]): FileItem[] => {
+        return items.map(item => {
           if (item.type === 'folder') {
-            const itemRelPath = item.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-            if (itemRelPath === targetFolderToUse) {
-              inserted = true;
+            const itemCleanPath = item.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+            const folderMatches = (itemCleanPath === folderPathToMatch) ||
+                                  (item.name === folderPathToMatch) ||
+                                  (itemCleanPath.endsWith(`/${folderPathToMatch}`));
+
+            if (folderMatches) {
+              insertedSuccessfully = true;
               const existingChildren = item.children || [];
-              const filtered = existingChildren.filter(c => c.id !== newFile.id && c.path !== newFile.path);
+              const filteredChildren = existingChildren.filter(c => c.id !== newFile.id && c.path !== newFile.path);
               return {
                 ...item,
-                children: [...filtered, newFile]
+                children: [...filteredChildren, newFile]
               };
             }
+
             if (item.children) {
               return {
                 ...item,
-                children: addFileToTree(item.children)
+                children: addFileRecursive(item.children)
               };
             }
           }
           return item;
         });
-
-        if (!inserted && items === prev.files) {
-          const filtered = items.filter(c => c.id !== newFile.id && c.path !== newFile.path);
-          return [...filtered, newFile];
-        }
-        return updated;
       };
 
-      return { ...prev, files: addFileToTree(prev.files) };
+      const updatedFiles = addFileRecursive(prev.files);
+
+      if (!insertedSuccessfully) {
+        const filteredRoot = updatedFiles.filter(c => c.id !== newFile.id && c.path !== newFile.path);
+        return { ...prev, files: [...filteredRoot, newFile] };
+      }
+
+      return { ...prev, files: updatedFiles };
     });
 
-    handleOpenInNewTab(newFile);
+    // Open and view immediately without requiring a refresh!
+    await handleSelectFile(newFile);
   };
 
   const handleCreateFolderSubmit = async (folderName: string, parentFolderPath?: string) => {
@@ -439,32 +605,225 @@ export function App() {
     const newFolder = await createNewFolder(mainDir, folderName.trim(), parentFolderPath);
 
     setMainDir(prev => {
-      const addFolderToTree = (items: FileItem[]): FileItem[] => {
-        if (!parentFolderPath) return [...items, newFolder];
-        const normalizedParent = parentFolderPath.replace(/^\//, '');
+      const cleanParentPath = (parentFolderPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 
+      if (!cleanParentPath) {
+        const filtered = prev.files.filter(c => c.id !== newFolder.id && c.path !== newFolder.path);
+        return { ...prev, files: [...filtered, newFolder] };
+      }
+
+      let folderInserted = false;
+
+      const addFolderRecursive = (items: FileItem[]): FileItem[] => {
         return items.map(item => {
           if (item.type === 'folder') {
-            const itemRelPath = item.path.replace(/^\//, '');
-            if (itemRelPath === normalizedParent) {
+            const itemCleanPath = item.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+            const isMatch = (itemCleanPath === cleanParentPath) || (item.name === cleanParentPath) || itemCleanPath.endsWith(`/${cleanParentPath}`);
+
+            if (isMatch) {
+              folderInserted = true;
+              const existingChildren = item.children || [];
+              const filteredChildren = existingChildren.filter(c => c.id !== newFolder.id && c.path !== newFolder.path);
               return {
                 ...item,
-                children: [...(item.children || []), newFolder]
+                children: [...filteredChildren, newFolder]
               };
             }
+
             if (item.children) {
               return {
                 ...item,
-                children: addFolderToTree(item.children)
+                children: addFolderRecursive(item.children)
               };
             }
           }
           return item;
         });
       };
-      return { ...prev, files: addFolderToTree(prev.files) };
+
+      const updatedFiles = addFolderRecursive(prev.files);
+      if (!folderInserted) {
+        const filteredRoot = updatedFiles.filter(c => c.id !== newFolder.id && c.path !== newFolder.path);
+        return { ...prev, files: [...filteredRoot, newFolder] };
+      }
+
+      return { ...prev, files: updatedFiles };
     });
   };
+
+  const handleCopyFile = useCallback(async (source: FileItem, targetFolderPath?: string) => {
+    const destDirRelPath = (targetFolderPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const cleanVaultPath = mainDir.path.replace(/\\/g, '/').replace(/\/$/, '');
+    
+    const sourceParent = (source.path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').split('/').slice(0, -1).join('/');
+    const isSameDir = sourceParent === destDirRelPath;
+
+    let newName = source.name;
+    if (isSameDir) {
+      const extIndex = source.name.lastIndexOf('.');
+      if (extIndex !== -1) {
+        const namePart = source.name.substring(0, extIndex);
+        const extPart = source.name.substring(extIndex);
+        newName = `${namePart}_copy${extPart}`;
+      } else {
+        newName = `${source.name}_copy`;
+      }
+    }
+
+    const newRelPath = destDirRelPath ? `${destDirRelPath}/${newName}` : newName;
+    const destFullPath = `${cleanVaultPath}/${newRelPath}`;
+
+    const loadedSource = (source.content !== undefined) ? source : await ensureFileContentLoaded(source);
+    const contentToCopy = loadedSource.content || '';
+
+    if (window.electronAPI?.writeFileText) {
+      await window.electronAPI.writeFileText(destFullPath, contentToCopy);
+    }
+
+    const newFileItem: FileItem = {
+      id: `file-${newRelPath}`,
+      name: newName,
+      path: newRelPath,
+      fullPath: destFullPath,
+      type: source.type,
+      extension: source.extension,
+      size: source.size,
+      lastModified: Date.now(),
+      content: contentToCopy
+    };
+
+    setMainDir(prev => {
+      if (!destDirRelPath) {
+        const filtered = prev.files.filter(c => c.id !== newFileItem.id && c.path !== newFileItem.path);
+        return { ...prev, files: [...filtered, newFileItem] };
+      }
+
+      let insertedSuccessfully = false;
+
+      const addFileRecursive = (items: FileItem[]): FileItem[] => {
+        return items.map(item => {
+          if (item.type === 'folder') {
+            const itemCleanPath = item.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+            const folderMatches = (itemCleanPath === destDirRelPath) ||
+                                  (item.name === destDirRelPath) ||
+                                  (itemCleanPath.endsWith(`/${destDirRelPath}`));
+
+            if (folderMatches) {
+              insertedSuccessfully = true;
+              const existingChildren = item.children || [];
+              const filteredChildren = existingChildren.filter(c => c.id !== newFileItem.id && c.path !== newFileItem.path);
+              return {
+                ...item,
+                children: [...filteredChildren, newFileItem]
+              };
+            }
+
+            if (item.children) {
+              return {
+                ...item,
+                children: addFileRecursive(item.children)
+              };
+            }
+          }
+          return item;
+        });
+      };
+
+      const updatedFiles = addFileRecursive(prev.files);
+
+      if (!insertedSuccessfully) {
+        const filteredRoot = updatedFiles.filter(c => c.id !== newFileItem.id && c.path !== newFileItem.path);
+        return { ...prev, files: [...filteredRoot, newFileItem] };
+      }
+
+      return { ...prev, files: updatedFiles };
+    });
+  }, [mainDir.path]);
+
+  const handleMoveFile = useCallback(async (source: FileItem, targetFolderPath?: string) => {
+    const destDirRelPath = (targetFolderPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const cleanVaultPath = mainDir.path.replace(/\\/g, '/').replace(/\/$/, '');
+    
+    const newRelPath = destDirRelPath ? `${destDirRelPath}/${source.name}` : source.name;
+    const destFullPath = `${cleanVaultPath}/${newRelPath}`;
+
+    if (source.fullPath === destFullPath || source.path === newRelPath) return;
+
+    const loadedSource = (source.content !== undefined) ? source : await ensureFileContentLoaded(source);
+    const contentToMove = loadedSource.content || '';
+
+    if (window.electronAPI?.deleteItem && source.fullPath) {
+      await window.electronAPI.deleteItem(source.fullPath);
+    }
+    if (window.electronAPI?.writeFileText) {
+      await window.electronAPI.writeFileText(destFullPath, contentToMove);
+    }
+
+    const movedItem: FileItem = {
+      ...source,
+      id: `file-${newRelPath}`,
+      path: newRelPath,
+      fullPath: destFullPath,
+      content: contentToMove
+    };
+
+    setMainDir(prev => {
+      const removeRecursive = (items: FileItem[]): FileItem[] => {
+        return items.filter(c => c.id !== source.id && c.path !== source.path).map(item => {
+          if (item.type === 'folder' && item.children) {
+            return { ...item, children: removeRecursive(item.children) };
+          }
+          return item;
+        });
+      };
+
+      const cleanedFiles = removeRecursive(prev.files);
+
+      if (!destDirRelPath) {
+        return { ...prev, files: [...cleanedFiles, movedItem] };
+      }
+
+      let insertedSuccessfully = false;
+
+      const addFileRecursive = (items: FileItem[]): FileItem[] => {
+        return items.map(item => {
+          if (item.type === 'folder') {
+            const itemCleanPath = item.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+            const folderMatches = (itemCleanPath === destDirRelPath) ||
+                                  (item.name === destDirRelPath) ||
+                                  (itemCleanPath.endsWith(`/${destDirRelPath}`));
+
+            if (folderMatches) {
+              insertedSuccessfully = true;
+              const existingChildren = item.children || [];
+              const filteredChildren = existingChildren.filter(c => c.id !== movedItem.id && c.path !== movedItem.path);
+              return {
+                ...item,
+                children: [...filteredChildren, movedItem]
+              };
+            }
+
+            if (item.children) {
+              return {
+                ...item,
+                children: addFileRecursive(item.children)
+              };
+            }
+          }
+          return item;
+        });
+      };
+
+      const updatedFiles = addFileRecursive(cleanedFiles);
+
+      if (!insertedSuccessfully) {
+        const filteredRoot = updatedFiles.filter(c => c.id !== movedItem.id && c.path !== movedItem.path);
+        return { ...prev, files: [...filteredRoot, movedItem] };
+      }
+
+      return { ...prev, files: updatedFiles };
+    });
+  }, [mainDir.path]);
 
   const handleToggleFavorite = (fileId: string) => {
     setMainDir(prev => {
@@ -660,7 +1019,7 @@ export function App() {
       }
     }
 
-    const assignedFile = targetFileId === 'dashboard' ? null : openTabs.find(t => t.id === targetFileId);
+    const assignedFile = targetFileId === 'dashboard' ? null : openTabs.find(t => (t.tabId || t.id) === targetFileId || t.id === targetFileId);
     const isPaneFocused = activePaneIdx === paneIdx;
 
     return (
@@ -746,7 +1105,7 @@ export function App() {
               >
                 <option value="dashboard">📊 Dashboard Overview</option>
                 {openTabs.map(t => (
-                  <option key={t.id} value={t.id}>
+                  <option key={t.tabId || t.id} value={t.tabId || t.id}>
                     📄 {t.name} ({t.type})
                   </option>
                 ))}
@@ -781,6 +1140,40 @@ export function App() {
     );
   };
 
+  if (isInitialLoading) {
+    return (
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        background: '#090d16',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 999999,
+        gap: 16
+      }}>
+        <div style={{
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          border: '3px solid rgba(168, 85, 247, 0.15)',
+          borderTopColor: '#a855f7',
+          animation: 'spin 0.7s linear infinite'
+        }} />
+        <div style={{
+          fontSize: '0.86rem',
+          fontWeight: 600,
+          color: '#94a3b8',
+          letterSpacing: '0.05em',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        }}>
+          Restoring NoteStack Session...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       {isSidebarVisible && viewMode !== 'focus' && (
@@ -794,6 +1187,8 @@ export function App() {
               onRemoveVault={handleRemoveVault}
               onCreateNewNote={triggerOpenCreateModal}
               onCreateNewFolder={triggerOpenCreateFolderModal}
+              onCopyItem={handleCopyFile}
+              onMoveItem={handleMoveFile}
               onToggleFavorite={handleToggleFavorite}
               onDeleteItem={handleDeleteItem}
               onRenameItem={handleRenameItem}
@@ -854,6 +1249,7 @@ export function App() {
             if (viewMode === 'dashboard') setViewMode('preview');
           }}
           onCloseTab={handleCloseTab}
+          onCloseAllTabs={handleCloseAllTabs}
           onGoToDashboard={() => {
             setViewMode('dashboard');
             handleAssignFileToPane(activePaneIdx, 'dashboard');
@@ -965,6 +1361,7 @@ export function App() {
         openTabs={openTabs}
         mainDir={mainDir}
         onContentChange={handleContentChange}
+        onFileContentUpdated={handleFileContentUpdated}
         onSelectFile={handleSelectFile}
         onOpenInNewTab={handleOpenInNewTab}
         onCreateNoteFromAI={(title, content, targetFolderPath) => handleCreateNoteSubmit(title, targetFolderPath, content)}

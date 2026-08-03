@@ -24,7 +24,8 @@ import {
   FileCheck,
   FilePlus,
   Edit3,
-  Folder
+  Folder,
+  Square
 } from 'lucide-react';
 import type { FileItem, MainDirectory } from '../types';
 import { getFileTextContentForAI } from '../utils/fileContentExtractor';
@@ -54,9 +55,10 @@ interface AIChatPanelProps {
   openTabs: FileItem[];
   mainDir: MainDirectory;
   onContentChange?: (newContent: string) => void;
+  onFileContentUpdated?: (filePathOrName: string, newContent: string) => void;
   onSelectFile?: (file: FileItem) => void;
   onOpenInNewTab?: (file: FileItem) => void;
-  onCreateNoteFromAI?: (title: string, content: string, targetFolderPath?: string) => void;
+  onCreateNoteFromAI?: (title: string, content: string, targetFolderPath?: string) => void | Promise<void>;
 }
 
 // ─────────────────────────── Constants ───────────────────────────
@@ -221,6 +223,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   openTabs,
   mainDir,
   onContentChange,
+  onFileContentUpdated,
   onSelectFile,
   onOpenInNewTab,
   onCreateNoteFromAI
@@ -253,6 +256,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // ── Persist chat history ──
   useEffect(() => {
@@ -327,24 +331,56 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const buildContextString = useCallback(async (): Promise<string> => {
     const contextParts: string[] = [];
 
+    // Helper to recursively scan text files inside attached folders
+    const scanFolderContents = async (folder: FileItem): Promise<string[]> => {
+      const parts: string[] = [];
+      if (folder.type === 'folder' && folder.children) {
+        for (const child of folder.children) {
+          if (child.type === 'folder') {
+            const subParts = await scanFolderContents(child);
+            parts.push(...subParts);
+          } else {
+            const text = await getFileTextContentForAI(child);
+            if (text) {
+              const displayPath = child.path ? child.path.replace(/^\//, '').replace(/\//g, ' / ') : child.name;
+              parts.push(`### File in attached folder "${folder.name}": "${child.name}" (${child.type})\nPath: ${displayPath}\n\n${truncateContent(text, 3000)}`);
+            }
+          }
+        }
+      }
+      return parts;
+    };
+
     // Active file context (auto-attached)
-    if (activeFile) {
+    if (activeFile && activeFile.type !== 'folder') {
       const text = await getFileTextContentForAI(activeFile);
       if (text) {
+        const displayPath = activeFile.path ? activeFile.path.replace(/^\//, '').replace(/\//g, ' / ') : activeFile.name;
         contextParts.push(
-          `## Currently Active File: "${activeFile.name}" (${activeFile.type})\nPath: ${activeFile.fullPath || activeFile.path}\n\n${truncateContent(text)}`
+          `## Currently Active File: "${activeFile.name}" (${activeFile.type})\nPath: ${displayPath}\n\n${truncateContent(text)}`
         );
       }
     }
 
-    // Manually attached files
+    // Manually attached files & folders
     for (const file of attachedFiles) {
       if (file.id !== activeFile?.id) {
-        const text = await getFileTextContentForAI(file);
-        if (text) {
-          contextParts.push(
-            `## Attached File: "${file.name}" (${file.type})\nPath: ${file.fullPath || file.path}\n\n${truncateContent(text, 4000)}`
-          );
+        if (file.type === 'folder') {
+          const folderFiles = await scanFolderContents(file);
+          if (folderFiles.length > 0) {
+            const displayFolderPath = file.path ? file.path.replace(/^\//, '').replace(/\//g, ' / ') : file.name;
+            contextParts.push(
+              `## Attached Folder: "${file.name}"\nPath: ${displayFolderPath}\n\n${folderFiles.join('\n\n')}`
+            );
+          }
+        } else {
+          const text = await getFileTextContentForAI(file);
+          if (text) {
+            const displayPath = file.path ? file.path.replace(/^\//, '').replace(/\//g, ' / ') : file.name;
+            contextParts.push(
+              `## Attached File: "${file.name}" (${file.type})\nPath: ${displayPath}\n\n${truncateContent(text, 4000)}`
+            );
+          }
         }
       }
     }
@@ -356,8 +392,18 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     return contextParts.join('\n\n---\n\n');
   }, [activeFile, attachedFiles]);
 
-  // ── Call AI API (Gemini or Groq) ──
-  const callAIAPI = useCallback(async (userMessage: string, context: string): Promise<string> => {
+  // ── Stop Generation Handler ──
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    showNotification('info', 'AI generation stopped.');
+  }, [showNotification]);
+
+  // ── Call AI API (Gemini, Groq, or OpenRouter) ──
+  const callAIAPI = useCallback(async (userMessage: string, context: string, signal?: AbortSignal, chatHistory: ChatMessage[] = []): Promise<string> => {
     if (!apiKey) {
       throw new Error('NO_API_KEY');
     }
@@ -378,7 +424,8 @@ Your capabilities:
    <<<END_APPEND>>>
 
 Rules:
-- Be concise but thorough
+- Provide comprehensive, exhaustive, and fully detailed responses without truncating or shortening any code, notes, or file outputs.
+- Never omit code or use placeholders like "// rest of code...". Always output complete, full file contents regardless of length.
 - Use markdown formatting in your responses
 - When editing files, provide the complete updated file so line diffs can be accurately calculated
 - If you're asked about a file that isn't in context, let the user know they can attach it
@@ -386,6 +433,24 @@ Rules:
 
 Current file context:
 ${context}`;
+
+    // Format conversation history for OpenAI-compatible APIs (OpenRouter & Groq)
+    const formattedMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+      { role: 'system', content: systemPrompt }
+    ];
+
+    const recentHistory = chatHistory.filter(m => m.role === 'user' || m.role === 'assistant').slice(-20);
+    for (const msg of recentHistory) {
+      formattedMessages.push({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      });
+    }
+
+    formattedMessages.push({
+      role: 'user',
+      content: userMessage
+    });
 
     if (provider === 'openrouter') {
       // ── OpenRouter API with Free Model Fallback Queue ──
@@ -408,17 +473,15 @@ ${context}`;
         try {
           const payload = {
             model: modelId,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userMessage }
-            ],
+            messages: formattedMessages,
             temperature: 0.7,
-            max_tokens: 8192,
+            max_tokens: 32768,
             top_p: 0.95
           };
 
           const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
+            signal,
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`,
@@ -442,7 +505,6 @@ ${context}`;
             throw new Error('INVALID_API_KEY');
           }
 
-          // If no endpoint or rate limited (404/429), try next free model in queue!
           console.warn(`OpenRouter model ${modelId} failed (${response.status}: ${errMsg}), trying fallback...`);
           continue;
         } catch (err: any) {
@@ -457,17 +519,15 @@ ${context}`;
       // ── Groq API (OpenAI-compatible) ──
       const payload = {
         model: selectedModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage }
-        ],
+        messages: formattedMessages,
         temperature: 0.7,
-        max_tokens: 8192,
+        max_tokens: 32768,
         top_p: 0.95
       };
 
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
+        signal,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
@@ -494,6 +554,32 @@ ${context}`;
 
     } else {
       // ── Gemini API with Google Official Exponential Backoff + Auto-Fallback ──
+      const geminiContents: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
+      const recentGeminiHistory = chatHistory.filter(m => m.role === 'user' || m.role === 'assistant').slice(-20);
+
+      for (const msg of recentGeminiHistory) {
+        const gRole = msg.role === 'user' ? 'user' : 'model';
+        const lastContent = geminiContents[geminiContents.length - 1];
+        if (lastContent && lastContent.role === gRole) {
+          lastContent.parts[0].text += `\n\n${msg.content}`;
+        } else {
+          geminiContents.push({
+            role: gRole,
+            parts: [{ text: msg.content }]
+          });
+        }
+      }
+
+      const lastContent = geminiContents[geminiContents.length - 1];
+      if (lastContent && lastContent.role === 'user') {
+        lastContent.parts[0].text += `\n\n${userMessage}`;
+      } else {
+        geminiContents.push({
+          role: 'user',
+          parts: [{ text: userMessage }]
+        });
+      }
+
       const fallbackQueue = Array.from(new Set([
         selectedModel,
         'gemini-3.6-flash',
@@ -508,22 +594,16 @@ ${context}`;
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
       for (const modelId of fallbackQueue) {
-        // Try up to 2 attempts per model with Exponential Backoff + Jitter
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const payload = {
               systemInstruction: {
                 parts: [{ text: systemPrompt }]
               },
-              contents: [
-                {
-                  role: 'user',
-                  parts: [{ text: userMessage }]
-                }
-              ],
+              contents: geminiContents,
               generationConfig: {
                 temperature: 0.7,
-                maxOutputTokens: 8192,
+                maxOutputTokens: 65536,
                 topP: 0.95,
                 topK: 40
               }
@@ -533,6 +613,7 @@ ${context}`;
               `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
               {
                 method: 'POST',
+                signal,
                 headers: { 
                   'Content-Type': 'application/json',
                   'x-goog-api-key': apiKey
@@ -641,9 +722,12 @@ ${context}`;
     setInputText('');
     setIsLoading(true);
 
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
     try {
       const context = await buildContextString();
-      const responseText = await callAIAPI(text, context);
+      const responseText = await callAIAPI(text, context, signal, messages);
 
       // Check for edit actions in the response
       const edits = parseEditActions(responseText);
@@ -662,9 +746,16 @@ ${context}`;
       // If there are edit actions, attach the first one to the message with diff stats
       if (edits.length > 0) {
         const edit = edits[0];
-        const matchingFile = activeFile?.name === edit.fileName
+        const cleanEditName = edit.fileName.split('/').pop() || edit.fileName;
+
+        const matchingFile = (activeFile && (activeFile.name === cleanEditName || activeFile.name === edit.fileName || activeFile.path?.endsWith(cleanEditName)))
           ? activeFile
-          : [...openTabs, ...attachedFiles].find(f => f.name === edit.fileName);
+          : [...openTabs, ...attachedFiles, ...allVaultFiles].find(f => 
+              f.name === cleanEditName || 
+              f.name === edit.fileName ||
+              (f.path && f.path.endsWith(cleanEditName)) ||
+              (f.fullPath && f.fullPath.replace(/\\/g, '/').endsWith(cleanEditName))
+            );
 
         if (matchingFile) {
           const originalText = matchingFile.content || '';
@@ -676,8 +767,8 @@ ${context}`;
 
           assistantMsg.editAction = {
             type: edit.type,
-            filePath: matchingFile.fullPath || matchingFile.path,
-            fileName: edit.fileName,
+            filePath: matchingFile.fullPath || matchingFile.path || edit.fileName,
+            fileName: cleanEditName,
             newContent: targetNewContent,
             originalContent: originalText,
             applied: false
@@ -685,8 +776,8 @@ ${context}`;
         } else {
           // File does not exist yet (File Creation Action!)
           let displayFileName = edit.fileName;
-          if (displayFileName.includes('/')) {
-            displayFileName = displayFileName.split('/').pop()!;
+          if (displayFileName.includes('/') || displayFileName.includes('\\')) {
+            displayFileName = displayFileName.replace(/\\/g, '/').split('/').pop()!;
           }
 
           assistantMsg.editAction = {
@@ -702,6 +793,18 @@ ${context}`;
 
       setMessages(prev => [...prev, assistantMsg]);
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.message === 'ABORTED' || abortControllerRef.current?.signal.aborted) {
+        const cancelMsg: ChatMessage = {
+          id: generateId(),
+          role: 'system',
+          content: '🛑 AI response generation stopped by user.',
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, cancelMsg]);
+        showNotification('info', 'AI generation stopped.');
+        return;
+      }
+
       let errorMsg = 'An unexpected error occurred.';
 
       if (err.message === 'NO_API_KEY') {
@@ -737,6 +840,7 @@ ${context}`;
       showNotification('error', errorMsg);
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [inputText, isLoading, apiKey, activeFile, attachedFiles, openTabs, buildContextString, callAIAPI, parseEditActions, showNotification, selectedModel, provider]);
 
@@ -777,10 +881,30 @@ ${context}`;
     if (!msg?.editAction) return;
 
     try {
+      // If already applied, just find and open the file in its existing tab (or open tab if not open yet)
+      if (msg.editAction.applied) {
+        const existingFile = [...openTabs, ...allVaultFiles].find(f =>
+          (f.fullPath && f.fullPath === msg.editAction?.filePath) ||
+          (f.path && f.path === msg.editAction?.filePath) ||
+          f.name === msg.editAction?.fileName
+        );
+        if (existingFile) {
+          if (onSelectFile) {
+            onSelectFile(existingFile);
+          } else if (onOpenInNewTab) {
+            onOpenInNewTab(existingFile);
+          }
+          showNotification('success', `Opened "${msg.editAction.fileName}" in editor!`);
+        } else {
+          showNotification('error', `Could not find "${msg.editAction.fileName}" in vault.`);
+        }
+        return;
+      }
+
       if (msg.editAction.type === 'create') {
         const targetFolder = getTargetFolderForNewNote();
         if (onCreateNoteFromAI) {
-          onCreateNoteFromAI(msg.editAction.fileName, msg.editAction.newContent, targetFolder);
+          await onCreateNoteFromAI(msg.editAction.fileName, msg.editAction.newContent, targetFolder);
         }
         setMessages(prev => prev.map(m => {
           if (m.id === msgId && m.editAction) {
@@ -792,31 +916,49 @@ ${context}`;
         return;
       }
 
-      // Write to disk via Electron API
-      if (window.electronAPI?.writeFileText) {
-        const success = await window.electronAPI.writeFileText(msg.editAction.filePath, msg.editAction.newContent);
+      // Write to disk via Electron API using absolute path
+      let targetDiskPath = msg.editAction.filePath;
+      if (!targetDiskPath || (!targetDiskPath.includes('/') && !targetDiskPath.includes('\\'))) {
+        const matchingFile = allVaultFiles.find(f => 
+          f.name === msg.editAction?.fileName || 
+          (f.path && f.path.endsWith(msg.editAction?.fileName || ''))
+        );
+        if (matchingFile?.fullPath) {
+          targetDiskPath = matchingFile.fullPath;
+        } else if (mainDir.path) {
+          const cleanMain = mainDir.path.replace(/\\/g, '/').replace(/\/$/, '');
+          targetDiskPath = `${cleanMain}/${msg.editAction.fileName}`;
+        }
+      }
+
+      if (window.electronAPI?.writeFileText && targetDiskPath) {
+        const success = await window.electronAPI.writeFileText(targetDiskPath, msg.editAction.newContent);
         if (!success) {
           showNotification('error', 'Failed to write file to disk.');
           return;
         }
       }
 
-      // If the edited file is the active file, update content in the app
-      if (activeFile && (activeFile.fullPath === msg.editAction.filePath || activeFile.path === msg.editAction.filePath)) {
-        onContentChange?.(msg.editAction.newContent);
+      // Immediately notify App state (openTabs, activeFile, mainDir.files) in React memory!
+      if (onFileContentUpdated) {
+        onFileContentUpdated(msg.editAction.filePath, msg.editAction.newContent);
+      } else if (onContentChange && activeFile && (activeFile.fullPath === msg.editAction.filePath || activeFile.path === msg.editAction.filePath || activeFile.name === msg.editAction.fileName)) {
+        onContentChange(msg.editAction.newContent);
       }
 
-      // Open the target file in a NEW TAB!
+      // Open or switch to the target file tab with updated content!
       const targetFile = [...openTabs, ...allVaultFiles].find(f => 
         (f.fullPath && f.fullPath === msg.editAction?.filePath) ||
         (f.path && f.path === msg.editAction?.filePath) ||
         f.name === msg.editAction?.fileName
       );
+
       if (targetFile) {
-        if (onOpenInNewTab) {
-          onOpenInNewTab(targetFile);
-        } else if (onSelectFile) {
-          onSelectFile(targetFile);
+        const freshFile: FileItem = { ...targetFile, content: msg.editAction.newContent };
+        if (onSelectFile) {
+          onSelectFile(freshFile);
+        } else if (onOpenInNewTab) {
+          onOpenInNewTab(freshFile);
         }
       }
 
@@ -828,11 +970,11 @@ ${context}`;
         return m;
       }));
 
-      showNotification('success', `Opened "${msg.editAction.fileName}" in a new tab!`);
+      showNotification('success', `Opened "${msg.editAction.fileName}" in editor!`);
     } catch (err) {
       showNotification('error', `Failed to open file: ${err}`);
     }
-  }, [messages, activeFile, onContentChange, onCreateNoteFromAI, onSelectFile, onOpenInNewTab, allVaultFiles, showNotification, getTargetFolderForNewNote]);
+  }, [messages, activeFile, onContentChange, onFileContentUpdated, onCreateNoteFromAI, onSelectFile, onOpenInNewTab, openTabs, allVaultFiles, showNotification, getTargetFolderForNewNote]);
 
   // ── Copy message ──
   const handleCopyMessage = (id: string, text: string) => {
@@ -858,10 +1000,16 @@ ${context}`;
   };
 
   const handleWriteToActiveFile = (content: string) => {
-    if (!activeFile || !onContentChange) return;
+    if (!activeFile) return;
     const currentContent = activeFile.content || '';
     const newContent = currentContent ? `${currentContent}\n\n${content}` : content;
-    onContentChange(newContent);
+    
+    if (onFileContentUpdated && (activeFile.fullPath || activeFile.path)) {
+      onFileContentUpdated(activeFile.fullPath || activeFile.path || activeFile.name, newContent);
+    } else if (onContentChange) {
+      onContentChange(newContent);
+    }
+    
     showNotification('success', `Written AI content into "${activeFile.name}"`);
   };
 
@@ -1301,16 +1449,26 @@ ${context}`;
           </div>
         ))}
 
-        {/* Loading indicator */}
+        {/* Loading indicator with Stop button */}
         {isLoading && (
           <div className="ai-message ai-message-assistant">
             <div className="ai-message-avatar">
               <Bot size={14} />
             </div>
             <div className="ai-message-body">
-              <div className="ai-typing-indicator">
-                <Loader2 size={14} className="ai-spinner" />
-                <span>Thinking...</span>
+              <div className="ai-typing-indicator" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Loader2 size={14} className="ai-spinner" />
+                  <span>Generating response...</span>
+                </div>
+                <button
+                  className="ai-stop-inline-btn"
+                  onClick={handleStopGeneration}
+                  title="Stop response generation (Escape)"
+                >
+                  <Square size={10} fill="currentColor" />
+                  <span>Stop</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1338,6 +1496,7 @@ ${context}`;
                 const fKey = f.fullPath || f.path || f.id;
                 const isActiveFile = activeFile && (activeFile.fullPath || activeFile.path || activeFile.id) === fKey;
                 const isOpenTab = openTabs.some(t => (t.fullPath || t.path || t.id) === fKey);
+                const displayPath = f.path ? f.path.replace(/^\//, '').replace(/\//g, ' / ') : (f.moduleName || '');
 
                 return (
                   <button
@@ -1372,7 +1531,7 @@ ${context}`;
                       ) : isOpenTab ? (
                         <span className="ai-file-tab-badge">open tab</span>
                       ) : null}
-                      <span className="ai-file-picker-path">{f.moduleName || ''}</span>
+                      <span className="ai-file-picker-path">{displayPath}</span>
                     </div>
                     {isAttached && <FileCheck size={13} className="ai-file-picker-check" />}
                   </button>
@@ -1437,21 +1596,33 @@ ${context}`;
               className="ai-attach-btn"
               onClick={() => setShowFilePicker(!showFilePicker)}
               title="Attach file"
+              disabled={isLoading}
             >
               <Plus size={15} />
             </button>
-            <button
-              className={`ai-send-btn ${inputText.trim() ? 'active' : ''}`}
-              onClick={handleSendMessage}
-              disabled={isLoading || !inputText.trim()}
-              title="Send message (Enter)"
-            >
-              {isLoading ? <Loader2 size={15} className="ai-spinner" /> : <Send size={15} />}
-            </button>
+
+            {isLoading ? (
+              <button
+                className="ai-send-btn stop-btn active"
+                onClick={handleStopGeneration}
+                title="Stop AI response generation (Escape)"
+              >
+                <Square size={13} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                className={`ai-send-btn ${inputText.trim() ? 'active' : ''}`}
+                onClick={handleSendMessage}
+                disabled={!inputText.trim()}
+                title="Send message (Enter)"
+              >
+                <Send size={15} />
+              </button>
+            )}
           </div>
         </div>
         <div className="ai-input-hint">
-          <span>Enter to send • Shift+Enter for new line</span>
+          <span>{isLoading ? 'Click Stop button or press Esc to cancel' : 'Enter to send • Shift+Enter for new line'}</span>
           {activeFile && <span className="ai-input-context-hint">Context: {activeFile.name}</span>}
         </div>
       </div>
