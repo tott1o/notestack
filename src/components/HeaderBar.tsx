@@ -15,7 +15,8 @@ import {
   Copy,
   Check,
   PanelLeftClose,
-  PanelLeft
+  PanelLeft,
+  Sparkles
 } from 'lucide-react';
 import type { FileItem, ReadingSettings, ViewMode } from '../types';
 
@@ -29,6 +30,8 @@ interface HeaderBarProps {
   onGoToDashboard: () => void;
   isSidebarVisible: boolean;
   onToggleSidebar: () => void;
+  isAIChatOpen?: boolean;
+  onToggleAIChat?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -40,7 +43,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onUpdateSettings,
   onGoToDashboard,
   isSidebarVisible,
-  onToggleSidebar
+  onToggleSidebar,
+  isAIChatOpen,
+  onToggleAIChat
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -165,8 +170,39 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Reading Themes */}
+      {/* Right: AI Toggle & Reading Themes */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+
+        {/* AI Chat Toggle */}
+        {onToggleAIChat && (
+          <button
+            className="tool-btn"
+            onClick={onToggleAIChat}
+            style={{
+              background: isAIChatOpen 
+                ? 'linear-gradient(135deg, rgba(168,85,247,0.25), rgba(99,102,241,0.25))'
+                : 'var(--bg-surface-elevated)',
+              border: isAIChatOpen 
+                ? '1px solid rgba(168,85,247,0.5)'
+                : '1px solid var(--border-color)',
+              color: isAIChatOpen ? '#c084fc' : 'var(--text-muted)',
+              padding: '4px 10px',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              flexShrink: 0,
+              transition: 'all 0.2s ease'
+            }}
+            title="Toggle AI Chat (Ctrl+Shift+A)"
+          >
+            <Sparkles size={14} />
+            <span>AI</span>
+          </button>
+        )}
 
         {/* Theme Selector */}
         <div style={{ display: 'flex', gap: 3, background: 'var(--bg-surface-elevated)', padding: 3, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>

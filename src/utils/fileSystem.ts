@@ -236,10 +236,20 @@ export async function ensureFileContentLoaded(fileItem: FileItem): Promise<FileI
   return fileItem;
 }
 
-export async function saveFileToDisk(fileItem: FileItem, newContent: string): Promise<boolean> {
-  if (window.electronAPI?.writeFileText && fileItem.fullPath) {
-    const success = await window.electronAPI.writeFileText(fileItem.fullPath, newContent);
-    if (success) fileItem.content = newContent;
+export async function saveFileToDisk(fileItem: FileItem, newContent: string, mainDirPath?: string): Promise<boolean> {
+  let targetPath = fileItem.fullPath;
+  if (!targetPath && mainDirPath && fileItem.path) {
+    const cleanMain = mainDirPath.replace(/\\/g, '/').replace(/\/$/, '');
+    const cleanSub = fileItem.path.startsWith('/') ? fileItem.path : `/${fileItem.path}`;
+    targetPath = `${cleanMain}${cleanSub}`;
+  }
+
+  if (window.electronAPI?.writeFileText && targetPath) {
+    const success = await window.electronAPI.writeFileText(targetPath, newContent);
+    if (success) {
+      fileItem.content = newContent;
+      fileItem.fullPath = targetPath;
+    }
     return success;
   }
 
@@ -266,30 +276,49 @@ export async function createNewMarkdownFile(
   fileName: string,
   targetFolderPath?: string
 ): Promise<FileItem> {
-  const isCode = !fileName.endsWith('.md') && fileName.includes('.');
-  const cleanName = fileName.trim();
+  let normalizedName = fileName.replace(/\\/g, '/').trim();
+  let folderFromTitle = '';
+  if (normalizedName.includes('/')) {
+    const parts = normalizedName.split('/');
+    normalizedName = parts.pop()!;
+    folderFromTitle = parts.join('/');
+  }
+
+  const cleanName = normalizedName;
+  const isCode = !cleanName.endsWith('.md') && cleanName.includes('.');
   const initialContent = isCode 
     ? (cleanName.endsWith('.csv') ? 'Column1,Column2,Column3\nValue1,Value2,Value3\n' : `// ${cleanName}\n// Created on ${new Date().toLocaleDateString()}\n\n`)
     : `# ${cleanName.replace('.md', '')}\n\n*Created on ${new Date().toLocaleDateString()}*\n\nType your lecture notes or reference summary here...\n`;
 
-  const cleanFolderPath = targetFolderPath ? targetFolderPath.replace(/^\//, '') : '';
+  const cleanTargetFolder = targetFolderPath ? targetFolderPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
+  const cleanTitleFolder = folderFromTitle ? folderFromTitle.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
+
+  let effectiveFolderPath = cleanTargetFolder;
+  if (cleanTitleFolder) {
+    if (!cleanTargetFolder) {
+      effectiveFolderPath = cleanTitleFolder;
+    } else if (!cleanTargetFolder.endsWith(cleanTitleFolder)) {
+      effectiveFolderPath = `${cleanTargetFolder}/${cleanTitleFolder}`;
+    }
+  }
 
   if (window.electronAPI?.createNewFile) {
-    const parentPath = cleanFolderPath 
-      ? `${parentDirectory.path}/${cleanFolderPath}`
-      : parentDirectory.path;
+    const cleanVaultPath = parentDirectory.path.replace(/\\/g, '/');
+    const parentPath = effectiveFolderPath 
+      ? `${cleanVaultPath}/${effectiveFolderPath}`
+      : cleanVaultPath;
     const created = await window.electronAPI.createNewFile(parentPath, cleanName, initialContent);
     if (created) return created;
   }
 
-  const path = cleanFolderPath ? `/${cleanFolderPath}/${cleanName}` : `/${cleanName}`;
+  const path = effectiveFolderPath ? `/${effectiveFolderPath}/${cleanName}` : `/${cleanName}`;
   const { type, extension } = getFileType(cleanName);
 
   if (parentDirectory.handle) {
     try {
       let targetDirHandle = parentDirectory.handle;
-      if (cleanFolderPath) {
-        const parts = cleanFolderPath.split('/');
+      if (effectiveFolderPath) {
+        const parts = effectiveFolderPath.split('/');
         for (const p of parts) {
           if (p) targetDirHandle = await targetDirHandle.getDirectoryHandle(p, { create: true });
         }
@@ -307,9 +336,9 @@ export async function createNewMarkdownFile(
         extension,
         content: initialContent,
         handle: fileHandle,
-        moduleName: cleanFolderPath || parentDirectory.name,
+        moduleName: effectiveFolderPath || parentDirectory.name,
         lastModified: Date.now(),
-        tags: [extension, (cleanFolderPath || parentDirectory.name).toLowerCase()]
+        tags: [extension, (effectiveFolderPath || parentDirectory.name).toLowerCase()]
       };
     } catch (err) {
       console.error("Error creating file on disk:", err);
@@ -323,7 +352,7 @@ export async function createNewMarkdownFile(
     type,
     extension,
     content: initialContent,
-    moduleName: cleanFolderPath || parentDirectory.name,
+    moduleName: effectiveFolderPath || parentDirectory.name,
     lastModified: Date.now(),
     tags: [extension]
   };

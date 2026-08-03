@@ -221,11 +221,15 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
   // Process ==highlighted text== → <mark class="study-highlight">
   processed = processed.replace(/==([^=\n]+?)==/g, '<mark class="study-highlight">$1</mark>');
 
-  // Process Display Math $$ ... $$ → Academic Equation Card
+  const mathBlocks: string[] = [];
+  const mathInlines: string[] = [];
+
+  // Extract Display Math $$ ... $$ → Placeholder Token
   processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+    const index = mathBlocks.length;
     try {
       const mathHtml = katex.renderToString(math.trim(), { displayMode: true, throwOnError: false });
-      return `
+      const cardHtml = `
         <div class="eqn-card">
           <div class="eqn-card-top">
             <div class="eqn-card-tag">
@@ -239,19 +243,27 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
           <div class="eqn-card-render">${mathHtml}</div>
         </div>
       `;
+      mathBlocks.push(cardHtml);
     } catch (e) {
-      return `<pre class="katex-error">${math}</pre>`;
+      mathBlocks.push(`<pre class="katex-error">${math}</pre>`);
     }
+    return `\n\nNOTESTACKMATHBLOCK${index}END\n\n`;
   });
 
-  // Process Inline Math $ ... $ → Inline Pill
-  processed = processed.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+  // Extract Inline Math $ ... $ → Placeholder Token
+  processed = processed.replace(/(^|[^\\\$])\$([^\s\$](?:[^\$]*?[^\s\$])?)\$/g, (match, prefix, math) => {
+    // Skip single currency values (e.g. $5 or $10.99)
+    if (/^\d+(\.\d+)?$/.test(math)) {
+      return match;
+    }
+    const index = mathInlines.length;
     try {
       const rendered = katex.renderToString(math.trim(), { displayMode: false, throwOnError: false });
-      return `<span class="eqn-inline">${rendered}</span>`;
+      mathInlines.push(`<span class="eqn-inline">${rendered}</span>`);
     } catch (e) {
-      return `<code>${math}</code>`;
+      mathInlines.push(`<code>${math}</code>`);
     }
+    return `${prefix}NOTESTACKMATHINLINE${index}END`;
   });
 
   let rawHtml = '';
@@ -261,6 +273,18 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     console.error("Marked parsing error:", err);
     rawHtml = `<pre>${processed}</pre>`;
   }
+
+  // Restore Display Math Blocks
+  rawHtml = rawHtml.replace(/<p>\s*NOTESTACKMATHBLOCK(\d+)END\s*<\/p>|NOTESTACKMATHBLOCK(\d+)END/g, (_, id1, id2) => {
+    const idx = parseInt(id1 !== undefined ? id1 : id2, 10);
+    return mathBlocks[idx] || '';
+  });
+
+  // Restore Inline Math
+  rawHtml = rawHtml.replace(/NOTESTACKMATHINLINE(\d+)END/g, (_, id) => {
+    const idx = parseInt(id, 10);
+    return mathInlines[idx] || '';
+  });
 
   if (bionicMode) {
     rawHtml = applyBionicReading(rawHtml);

@@ -19,6 +19,8 @@ interface QuickSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   files: FileItem[];
+  openTabs?: FileItem[];
+  activeFile?: FileItem | null;
   onSelectFile: (file: FileItem) => void;
   onCreateNewNote: () => void;
 }
@@ -27,6 +29,8 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
   isOpen,
   onClose,
   files,
+  openTabs = [],
+  activeFile,
   onSelectFile,
   onCreateNewNote
 }) => {
@@ -51,17 +55,42 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
     return flatten(files);
   }, [files]);
 
-  // Filter files based on search query
+  // Filter & prioritize open tabs in search results
   const filteredFiles = useMemo(() => {
-    if (!query.trim()) return allFlattenedFiles.slice(0, 30);
+    const openTabSet = new Set(openTabs.map(t => t.fullPath || t.path || t.id));
+    const activePath = activeFile ? (activeFile.fullPath || activeFile.path || activeFile.id) : null;
     const q = query.toLowerCase().trim();
-    return allFlattenedFiles.filter(f => 
-      f.name.toLowerCase().includes(q) ||
-      (f.path && f.path.toLowerCase().includes(q)) ||
-      (f.extension && f.extension.toLowerCase().includes(q)) ||
-      (f.moduleName && f.moduleName.toLowerCase().includes(q))
-    ).slice(0, 40);
-  }, [allFlattenedFiles, query]);
+
+    let matches = allFlattenedFiles;
+    if (q) {
+      matches = allFlattenedFiles.filter(f => 
+        f.name.toLowerCase().includes(q) ||
+        (f.path && f.path.toLowerCase().includes(q)) ||
+        (f.extension && f.extension.toLowerCase().includes(q)) ||
+        (f.moduleName && f.moduleName.toLowerCase().includes(q))
+      );
+    }
+
+    // Sort so active file & open tabs appear at the top!
+    const sorted = [...matches].sort((a, b) => {
+      const aKey = a.fullPath || a.path || a.id;
+      const bKey = b.fullPath || b.path || b.id;
+
+      const aActive = aKey === activePath;
+      const bActive = bKey === activePath;
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+
+      const aOpen = openTabSet.has(aKey);
+      const bOpen = openTabSet.has(bKey);
+      if (aOpen && !bOpen) return -1;
+      if (!aOpen && bOpen) return 1;
+
+      return 0;
+    });
+
+    return sorted.slice(0, 40);
+  }, [allFlattenedFiles, query, openTabs, activeFile]);
 
   // Focus search input when modal opens
   useEffect(() => {
@@ -246,15 +275,17 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
             </span>
           </div>
 
-          <div style={{ height: 1, background: 'var(--border-color)', margin: '6px 0' }} />
-
-          {/* Files List */}
+          <div style={{ height: 1, background: 'var(--border-color)', margin: '6px 0' }} />          {/* Files List */}
           {filteredFiles.length > 0 ? (
             filteredFiles.map((file, idx) => {
               const isSelected = selectedIndex === idx + 1;
+              const fKey = file.fullPath || file.path || file.id;
+              const isActive = activeFile && (activeFile.fullPath || activeFile.path || activeFile.id) === fKey;
+              const isOpenTab = openTabs.some(t => (t.fullPath || t.path || t.id) === fKey);
+
               return (
                 <div
-                  key={file.id || idx}
+                  key={file.id}
                   onClick={() => {
                     onSelectFile(file);
                     onClose();
@@ -263,35 +294,34 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
-                    padding: '9px 14px',
+                    padding: '8px 12px',
                     borderRadius: 'var(--radius-md, 8px)',
-                    background: isSelected ? 'var(--primary-light)' : 'transparent',
-                    border: isSelected ? '1px solid var(--primary)' : '1px solid transparent',
+                    background: isSelected ? 'var(--bg-surface-hover)' : 'transparent',
+                    border: isSelected ? '1px solid var(--border-highlight)' : '1px solid transparent',
                     cursor: 'pointer',
                     marginBottom: 2,
-                    transition: 'all 0.12s ease'
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                  <div style={{ flexShrink: 0 }}>
                     {getFileIcon(file.type)}
                   </div>
-
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)' }}>
                         {file.name}
                       </span>
-                      <span className={`file-tag-badge ${file.type}`} style={{ fontSize: '0.66rem', padding: '1px 5px' }}>
-                        {file.extension || file.type}
-                      </span>
+                      {isActive ? (
+                        <span className="ai-file-tab-badge active">active tab</span>
+                      ) : isOpenTab ? (
+                        <span className="ai-file-tab-badge">open tab</span>
+                      ) : null}
                     </div>
-
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
-                      {file.path || file.fullPath || file.moduleName || 'Vault Root'}
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {file.moduleName ? `${file.moduleName} • ` : ''}{file.path}
                     </div>
                   </div>
-
-                  <ChevronRight size={14} style={{ color: isSelected ? 'var(--primary)' : 'var(--text-dim)', flexShrink: 0 }} />
+                  <ChevronRight size={14} style={{ color: 'var(--text-muted)', opacity: isSelected ? 1 : 0.4 }} />
                 </div>
               );
             })

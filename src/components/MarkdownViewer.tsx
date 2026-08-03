@@ -55,7 +55,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 }) => {
   const [content, setContent] = useState<string>(file.content || '');
   const [isSaved, setIsSaved] = useState<boolean>(true);
-  const [activeMode, setActiveMode] = useState<'preview' | 'edit' | 'split'>('split');
+  const [activeMode, setActiveMode] = useState<'preview' | 'edit' | 'split'>('preview');
   const [fontSize, setFontSize] = useState<number>(16);
   const [showToc, setShowToc] = useState<boolean>(false);
   const [activeLine, setActiveLine] = useState<number>(1);
@@ -83,6 +83,14 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
       });
     }
   }, [file.id, fileKey]);
+
+  // Sync content state when file.content prop changes externally (e.g. AI edits or disk reloads)
+  useEffect(() => {
+    if (file.content !== undefined && file.content !== content) {
+      setContent(file.content);
+      setIsSaved(true);
+    }
+  }, [file.content]);
 
   // Active line calculation
   const updateActiveLine = useCallback(() => {
@@ -141,32 +149,69 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
   // Sync view mode when header bar viewMode prop changes
   useEffect(() => {
-    if (viewMode === 'edit' || viewMode === 'split') {
+    if (viewMode === 'edit' || viewMode === 'split' || viewMode === 'preview') {
       setActiveMode(viewMode);
     }
   }, [viewMode]);
 
   // Trackpad Pinch & Ctrl+Wheel Zoom Listener for Markdown Preview & Editor
   useEffect(() => {
-    const previewEl = previewRef.current;
-    const textareaEl = textareaRef.current;
-
-    const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
+    const handleWheelZoom = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         const delta = e.deltaY < 0 ? 1 : -1;
         setFontSize(prev => Math.min(32, Math.max(10, prev + delta)));
       }
     };
 
-    if (previewEl) previewEl.addEventListener('wheel', handleWheel, { passive: false });
-    if (textareaEl) textareaEl.addEventListener('wheel', handleWheel, { passive: false });
+    const previewEl = previewRef.current;
+    const textEl = textareaRef.current;
+
+    if (previewEl) previewEl.addEventListener('wheel', handleWheelZoom, { passive: false });
+    if (textEl) textEl.addEventListener('wheel', handleWheelZoom, { passive: false });
 
     return () => {
-      if (previewEl) previewEl.removeEventListener('wheel', handleWheel);
-      if (textareaEl) textareaEl.removeEventListener('wheel', handleWheel);
+      if (previewEl) previewEl.removeEventListener('wheel', handleWheelZoom);
+      if (textEl) textEl.removeEventListener('wheel', handleWheelZoom);
     };
   }, []);
+
+  // Compute live rendered HTML & Outline
+  const renderedHtml = useMemo(() => {
+    return renderMarkdownToHtml(content, settings.bionicReading);
+  }, [content, settings.bionicReading]);
+
+  const wordCount = useMemo(() => {
+    return content.trim() ? content.trim().split(/\s+/).length : 0;
+  }, [content]);
+
+  const readingTimeMinutes = useMemo(() => {
+    return calculateReadingTime(content);
+  }, [content]);
+
+  const tocItems = useMemo(() => {
+    return extractTableOfContents(content);
+  }, [content]);
+
+  const taskProgress = useMemo(() => {
+    return getTaskProgress(content);
+  }, [content]);
+
+  const lineCount = useMemo(() => {
+    return content.split('\n').length;
+  }, [content]);
+
+  const lineNumbers = useMemo(() => {
+    return Array.from({ length: lineCount }, (_, i) => i + 1);
+  }, [lineCount]);
+
+  const scrollToHeading = (id: string) => {
+    if (!previewRef.current) return;
+    const headingEl = previewRef.current.querySelector(`#${id}`);
+    if (headingEl) {
+      headingEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -205,13 +250,13 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setContent(newContent);
+    onContentChange(newContent);
     setIsSaved(false);
     updateActiveLine();
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     saveTimeoutRef.current = setTimeout(() => {
-      onContentChange(newContent);
       setIsSaved(true);
     }, 600);
   };
@@ -403,41 +448,6 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     }
   };
 
-  const renderedHtml = useMemo(() => {
-    return renderMarkdownToHtml(content, settings.bionicReading);
-  }, [content, settings.bionicReading]);
-
-  const tocItems = useMemo(() => {
-    return extractTableOfContents(content);
-  }, [content]);
-
-  const taskProgress = useMemo(() => {
-    return getTaskProgress(content);
-  }, [content]);
-
-  const wordCount = useMemo(() => {
-    return content.trim() ? content.trim().split(/\s+/).length : 0;
-  }, [content]);
-
-  const lineCount = useMemo(() => {
-    return content ? content.split('\n').length : 1;
-  }, [content]);
-
-  const lineNumbers = useMemo(() => {
-    return Array.from({ length: lineCount }, (_, i) => i + 1);
-  }, [lineCount]);
-
-  const readingTimeMinutes = useMemo(() => {
-    return calculateReadingTime(content);
-  }, [content]);
-
-  const scrollToHeading = (headingId: string) => {
-    if (!previewRef.current) return;
-    const target = previewRef.current.querySelector(`#${headingId}`);
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
 
   return (
     <div className="viewer-shell">

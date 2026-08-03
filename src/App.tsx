@@ -15,6 +15,7 @@ import { FlashcardsModal } from './components/FlashcardsModal';
 import { CreateNoteModal } from './components/CreateNoteModal';
 import { CreateFolderModal } from './components/CreateFolderModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
+import { AIChatPanel } from './components/AIChatPanel';
 
 import type { FileItem, MainDirectory, ReadingSettings, ViewMode, SplitLayoutMode } from './types';
 import { EMPTY_MAIN_DIRECTORY } from './utils/sampleData';
@@ -41,6 +42,7 @@ export function App() {
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [showFlashcards, setShowFlashcards] = useState<boolean>(false);
   const [showQuickSearch, setShowQuickSearch] = useState<boolean>(false);
+  const [isAIChatOpen, setIsAIChatOpen] = useState<boolean>(false);
   
   // Sidebar Resizing & Visibility State
   const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);
@@ -192,7 +194,7 @@ export function App() {
     setViewMode('preview');
   }, [splitCount, activePaneIdx]);
 
-  // Global Keyboard Shortcuts: Ctrl+D (Duplicate Tab) & Ctrl+P (Quick Vault File Search)
+  // Global Keyboard Shortcuts: Ctrl+D (Duplicate Tab) & Ctrl+P (Quick Vault File Search) & Ctrl+Shift+A (AI Chat)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
@@ -203,6 +205,9 @@ export function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setShowQuickSearch(prev => !prev);
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setIsAIChatOpen(prev => !prev);
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -264,13 +269,14 @@ export function App() {
     setOpenTabs(reorderedTabs);
   };
 
-  const handleCloseTab = (fileId: string, e: React.MouseEvent) => {
+  const handleCloseTab = (tabKey: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setOpenTabs(prev => {
-      const closingIdx = prev.findIndex(t => (t.tabId || t.id) === fileId || t.id === fileId);
-      const nextTabs = prev.filter(t => (t.tabId || t.id) !== fileId && t.id !== fileId);
+      const closingIdx = prev.findIndex(t => (t.tabId || t.id) === tabKey);
+      const nextTabs = prev.filter(t => (t.tabId || t.id) !== tabKey);
 
-      if ((activeFile?.tabId || activeFile?.id) === fileId || activeFile?.id === fileId) {
+      const currentActiveKey = activeFile ? (activeFile.tabId || activeFile.id) : null;
+      if (currentActiveKey === tabKey) {
         if (nextTabs.length > 0) {
           const fallbackIdx = Math.max(0, closingIdx - 1);
           const nextActive = nextTabs[fallbackIdx];
@@ -289,7 +295,7 @@ export function App() {
       handleChangeSplitCount(1);
     }
 
-    setPaneActiveFileIds(prev => prev.map(id => id === fileId ? null : id));
+    setPaneActiveFileIds(prev => prev.map(id => id === tabKey ? null : id));
   };
 
   // Enforce automatic single-screen view constraint if only 1 tab is open
@@ -342,7 +348,7 @@ export function App() {
     }
 
     saveTimeoutRef.current = setTimeout(async () => {
-      await saveFileToDisk(updated, newContent);
+      await saveFileToDisk(updated, newContent, mainDir.path);
 
       setMainDir(prev => {
         const updateFilesRecursive = (items: FileItem[]): FileItem[] => {
@@ -359,7 +365,7 @@ export function App() {
         return { ...prev, files: updateFilesRecursive(prev.files) };
       });
     }, 1000);
-  }, [activeFile]);
+  }, [activeFile, mainDir.path]);
 
   const triggerOpenCreateModal = (moduleName?: string) => {
     setTargetModuleName(moduleName);
@@ -378,21 +384,29 @@ export function App() {
     const newFile = await createNewMarkdownFile(mainDir, title.trim(), targetFolderPath);
     if (initialText) {
       newFile.content = initialText;
-      await saveFileToDisk(newFile, initialText);
+      await saveFileToDisk(newFile, initialText, mainDir.path);
     }
 
     setMainDir(prev => {
-      const addFileToTree = (items: FileItem[]): FileItem[] => {
-        if (!targetFolderPath) return [...items, newFile];
-        const normalizedTarget = targetFolderPath.replace(/^\//, '');
+      const targetFolderToUse = (newFile.moduleName || targetFolderPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 
-        return items.map(item => {
+      const addFileToTree = (items: FileItem[]): FileItem[] => {
+        if (!targetFolderToUse) {
+          const filtered = items.filter(c => c.id !== newFile.id && c.path !== newFile.path);
+          return [...filtered, newFile];
+        }
+
+        let inserted = false;
+        const updated = items.map(item => {
           if (item.type === 'folder') {
-            const itemRelPath = item.path.replace(/^\//, '');
-            if (itemRelPath === normalizedTarget) {
+            const itemRelPath = item.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+            if (itemRelPath === targetFolderToUse) {
+              inserted = true;
+              const existingChildren = item.children || [];
+              const filtered = existingChildren.filter(c => c.id !== newFile.id && c.path !== newFile.path);
               return {
                 ...item,
-                children: [...(item.children || []), newFile]
+                children: [...filtered, newFile]
               };
             }
             if (item.children) {
@@ -404,13 +418,18 @@ export function App() {
           }
           return item;
         });
+
+        if (!inserted && items === prev.files) {
+          const filtered = items.filter(c => c.id !== newFile.id && c.path !== newFile.path);
+          return [...filtered, newFile];
+        }
+        return updated;
       };
 
       return { ...prev, files: addFileToTree(prev.files) };
     });
 
-    setActiveFile(newFile);
-    setViewMode('preview');
+    handleOpenInNewTab(newFile);
   };
 
   const handleCreateFolderSubmit = async (folderName: string, parentFolderPath?: string) => {
@@ -823,6 +842,8 @@ export function App() {
           onGoToDashboard={() => setViewMode('dashboard')}
           isSidebarVisible={isSidebarVisible && viewMode !== 'focus'}
           onToggleSidebar={() => setIsSidebarVisible(prev => !prev)}
+          isAIChatOpen={isAIChatOpen}
+          onToggleAIChat={() => setIsAIChatOpen(prev => !prev)}
         />
 
         <TabBar 
@@ -928,11 +949,25 @@ export function App() {
         isOpen={showQuickSearch}
         onClose={() => setShowQuickSearch(false)}
         files={mainDir.files}
+        openTabs={openTabs}
+        activeFile={activeFile}
         onSelectFile={(file) => {
           handleSelectFile(file);
           setShowQuickSearch(false);
         }}
         onCreateNewNote={() => triggerOpenCreateModal()}
+      />
+
+      <AIChatPanel
+        isOpen={isAIChatOpen}
+        onClose={() => setIsAIChatOpen(false)}
+        activeFile={activeFile}
+        openTabs={openTabs}
+        mainDir={mainDir}
+        onContentChange={handleContentChange}
+        onSelectFile={handleSelectFile}
+        onOpenInNewTab={handleOpenInNewTab}
+        onCreateNoteFromAI={(title, content, targetFolderPath) => handleCreateNoteSubmit(title, targetFolderPath, content)}
       />
     </div>
   );

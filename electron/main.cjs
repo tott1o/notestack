@@ -220,6 +220,15 @@ ipcMain.handle('fs:createNewFile', async (_, { parentPath, fileName, content }) 
     const fullPath = path.join(parentPath, fileName);
     fs.writeFileSync(fullPath, content, 'utf8');
     const stats = fs.statSync(fullPath);
+
+    const cfg = getSavedConfig();
+    let relPath = fileName;
+    if (cfg.activePath && fullPath.startsWith(cfg.activePath)) {
+      relPath = fullPath.substring(cfg.activePath.length).replace(/\\/g, '/');
+      if (!relPath.startsWith('/')) relPath = '/' + relPath;
+    } else {
+      relPath = '/' + fileName;
+    }
     
     const extParts = fileName.split('.');
     const ext = extParts.length > 1 ? extParts.pop().toLowerCase() : '';
@@ -229,9 +238,9 @@ ipcMain.handle('fs:createNewFile', async (_, { parentPath, fileName, content }) 
     else if (ext === 'csv') fileType = 'csv';
 
     return {
-      id: `file-${fullPath}-${Date.now()}`,
+      id: `file-${relPath}`,
       name: fileName,
-      path: `/${fileName}`,
+      path: relPath,
       fullPath,
       type: fileType,
       extension: ext,

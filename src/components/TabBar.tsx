@@ -67,9 +67,13 @@ export const TabBar: React.FC<TabBarProps> = ({
   const handlePointerDown = (e: PointerEvent<HTMLDivElement>, idx: number) => {
     // Only capture primary mouse button clicks
     if (e.button !== 0) return;
+    // Don't capture pointer if close button was clicked
+    if ((e.target as HTMLElement).closest('.tab-close-btn')) return;
 
     const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture(e.pointerId);
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {}
 
     startMouseXRef.current = e.clientX;
     setDraggingIdx(idx);
@@ -113,6 +117,8 @@ export const TabBar: React.FC<TabBarProps> = ({
     setDragDeltaX(0);
   };
 
+  const activeTabKey = activeFile ? (activeFile.tabId || activeFile.id) : null;
+
   return (
     <div className="browser-tab-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <div className="tab-scroll-container" style={{ flex: 1, display: 'flex', alignItems: 'center', overflowX: 'auto' }}>
@@ -128,7 +134,8 @@ export const TabBar: React.FC<TabBarProps> = ({
 
         {/* 60 FPS Chrome Browser Tab Bar with Neighbor Displacement Physics */}
         {openTabs.map((file, idx) => {
-          const isActive = !isDashboardActive && activeFile?.id === file.id;
+          const tabKey = file.tabId || `${file.id}_${idx}`;
+          const isActive = !isDashboardActive && activeTabKey === (file.tabId || file.id);
           const isDragging = idx === draggingIdx;
 
           // Chrome Neighbor Tab Displacement Offset Calculation
@@ -145,7 +152,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 
           return (
             <div
-              key={file.id}
+              key={tabKey}
               onPointerDown={(e) => handlePointerDown(e, idx)}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
@@ -177,7 +184,7 @@ export const TabBar: React.FC<TabBarProps> = ({
                 className="tab-close-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onCloseTab(file.id, e);
+                  onCloseTab(file.tabId || file.id, e);
                 }}
                 onPointerDown={(e) => e.stopPropagation()} // Prevent triggering drag when clicking close
                 title="Close Tab"
