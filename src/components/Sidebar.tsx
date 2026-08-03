@@ -11,7 +11,6 @@ import {
   HardDrive, 
   ChevronRight, 
   ChevronDown,
-  Layers,
   Image as ImageIcon,
   Video as VideoIcon,
   Code as CodeIcon,
@@ -41,6 +40,7 @@ interface SidebarProps {
   onToggleFavorite: (fileId: string) => void;
   onDeleteItem: (item: FileItem) => void;
   onRenameItem: (item: FileItem, newName: string) => void;
+  onOpenInNewTab?: (file: FileItem) => void;
   selectedFilter: string;
   setSelectedFilter: (filter: string) => void;
   searchQuery: string;
@@ -58,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleFavorite,
   onDeleteItem,
   onRenameItem,
+  onOpenInNewTab,
   selectedFilter,
   setSelectedFilter,
   searchQuery,
@@ -335,8 +336,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-sm)' }}>
-              <Layers size={18} />
+            <div style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'var(--bg-surface-elevated)',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 3,
+              boxShadow: 'var(--shadow-sm)',
+              flexShrink: 0
+            }}>
+              <img 
+                src="/notestacklogo.png" 
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = './notestacklogo.png';
+                }}
+                alt="NoteStack Logo" 
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+              />
             </div>
             <div>
               <div style={{ fontWeight: 800, fontSize: '0.94rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -534,7 +554,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* 5. Hierarchical Folder Tree */}
-      <div className="file-tree-container" style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+      <div className="file-tree-container" style={{ flex: 1, overflowY: 'auto', padding: '8px 12px 220px 12px' }}>
         {sortedRootFiles.length > 0 ? (
           sortedRootFiles.map(item => renderFileRow(item, 0))
         ) : (
@@ -588,17 +608,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </>
           ) : (
-            <div 
-              className="tool-btn" 
-              style={{ padding: '6px 10px', fontSize: '0.8rem', width: '100%', justifyContent: 'flex-start' }}
-              onClick={() => {
-                onToggleFavorite(contextMenu.item.id);
-                setContextMenu(null);
-              }}
-            >
-              <Star size={14} fill={contextMenu.item.isFavorite ? 'var(--accent-amber)' : 'none'} />
-              {contextMenu.item.isFavorite ? 'Unstar Item' : 'Star Item'}
-            </div>
+            <>
+              {onOpenInNewTab && (
+                <div 
+                  className="tool-btn" 
+                  style={{ padding: '6px 10px', fontSize: '0.8rem', width: '100%', justifyContent: 'flex-start', color: 'var(--primary)' }}
+                  onClick={() => {
+                    onOpenInNewTab(contextMenu.item);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Plus size={14} /> Open in New Tab (Ctrl+D)
+                </div>
+              )}
+              <div 
+                className="tool-btn" 
+                style={{ padding: '6px 10px', fontSize: '0.8rem', width: '100%', justifyContent: 'flex-start' }}
+                onClick={() => {
+                  onToggleFavorite(contextMenu.item.id);
+                  setContextMenu(null);
+                }}
+              >
+                <Star size={14} fill={contextMenu.item.isFavorite ? 'var(--accent-amber)' : 'none'} />
+                {contextMenu.item.isFavorite ? 'Unstar Item' : 'Star Item'}
+              </div>
+            </>
           )}
 
           <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />

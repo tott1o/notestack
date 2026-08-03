@@ -3,9 +3,6 @@ import {
   Folder, 
   ChevronRight, 
   FileText, 
-  Eye, 
-  Columns, 
-  Maximize2, 
   Moon, 
   Sun, 
   BookOpen,
@@ -16,7 +13,9 @@ import {
   Video as VideoIcon,
   File,
   Copy,
-  Check
+  Check,
+  PanelLeftClose,
+  PanelLeft
 } from 'lucide-react';
 import type { FileItem, ReadingSettings, ViewMode } from '../types';
 
@@ -28,18 +27,20 @@ interface HeaderBarProps {
   settings: ReadingSettings;
   onUpdateSettings: (newSettings: Partial<ReadingSettings>) => void;
   onGoToDashboard: () => void;
-  availablePdfFile?: FileItem | null;
+  isSidebarVisible: boolean;
+  onToggleSidebar: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
   mainDirName,
   activeFile,
-  viewMode,
-  onSetViewMode,
+  viewMode: _viewMode,
+  onSetViewMode: _onSetViewMode,
   settings,
   onUpdateSettings,
   onGoToDashboard,
-  availablePdfFile
+  isSidebarVisible,
+  onToggleSidebar
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -79,104 +80,93 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
   return (
     <header className="header-bar">
-      {/* Left: Breadcrumb Navigation Path */}
-      <div className="breadcrumbs" style={{ overflowX: 'auto', scrollbarWidth: 'none' }}>
-        <div className="breadcrumb-item" onClick={onGoToDashboard} title="Go to Vault Dashboard">
-          <Folder size={16} style={{ color: 'var(--primary)' }} />
-          <span style={{ fontWeight: 700 }}>{mainDirName || 'Main Vault'}</span>
-        </div>
+      {/* Left: Universal Sidebar Toggle & Breadcrumbs */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflowX: 'auto', scrollbarWidth: 'none' }}>
+        <button
+          className="tool-btn"
+          onClick={onToggleSidebar}
+          style={{
+            background: 'var(--bg-surface-elevated)',
+            border: '1px solid var(--border-color)',
+            color: isSidebarVisible ? 'var(--primary)' : 'var(--text-muted)',
+            padding: '4px 8px',
+            borderRadius: 'var(--radius-md)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: '0.78rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            flexShrink: 0
+          }}
+          title={isSidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+        >
+          {isSidebarVisible ? <PanelLeftClose size={15} /> : <PanelLeft size={15} />}
+          <span>{isSidebarVisible ? 'Hide Sidebar' : 'Sidebar'}</span>
+        </button>
 
-        {activeFile && (
-          <>
-            {pathSegments.length > 0 ? (
-              pathSegments.map((segment, idx) => (
-                <React.Fragment key={idx}>
+        <div className="breadcrumbs" style={{ overflowX: 'auto', scrollbarWidth: 'none' }}>
+          <div className="breadcrumb-item" onClick={onGoToDashboard} title="Go to Vault Dashboard">
+            <Folder size={16} style={{ color: 'var(--primary)' }} />
+            <span style={{ fontWeight: 700 }}>{mainDirName || 'Main Vault'}</span>
+          </div>
+
+          {activeFile && (
+            <>
+              {pathSegments.length > 0 ? (
+                pathSegments.map((segment, idx) => (
+                  <React.Fragment key={idx}>
+                    <ChevronRight size={14} className="breadcrumb-separator" />
+                    <div className="breadcrumb-item" title={`Folder: ${segment}`}>
+                      <span style={{ color: 'var(--text-muted)' }}>{segment}</span>
+                    </div>
+                  </React.Fragment>
+                ))
+              ) : activeFile.moduleName ? (
+                <>
                   <ChevronRight size={14} className="breadcrumb-separator" />
-                  <div className="breadcrumb-item" title={`Folder: ${segment}`}>
-                    <span style={{ color: 'var(--text-muted)' }}>{segment}</span>
+                  <div className="breadcrumb-item">
+                    <span style={{ color: 'var(--text-muted)' }}>{activeFile.moduleName}</span>
                   </div>
-                </React.Fragment>
-              ))
-            ) : activeFile.moduleName ? (
-              <>
-                <ChevronRight size={14} className="breadcrumb-separator" />
-                <div className="breadcrumb-item">
-                  <span style={{ color: 'var(--text-muted)' }}>{activeFile.moduleName}</span>
-                </div>
-              </>
-            ) : null}
+                </>
+              ) : null}
 
-            <ChevronRight size={14} className="breadcrumb-separator" />
-            <div className="breadcrumb-item active" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {getFileIcon(activeFile.type)}
-              <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{activeFile.name}</span>
-              <span className={`file-tag-badge ${activeFile.type}`} style={{ marginLeft: 4 }}>
-                {activeFile.extension || activeFile.type}
-              </span>
+              <ChevronRight size={14} className="breadcrumb-separator" />
+              <div className="breadcrumb-item active" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {getFileIcon(activeFile.type)}
+                <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{activeFile.name}</span>
+                <span className={`file-tag-badge ${activeFile.type}`} style={{ marginLeft: 4 }}>
+                  {activeFile.extension || activeFile.type}
+                </span>
 
-              {/* 1-Click Copy Full Path Button */}
-              <button
-                onClick={handleCopyPath}
-                className="tool-btn"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: copied ? '#4ade80' : 'var(--text-muted)',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '2px 4px',
-                  borderRadius: 4,
-                  marginLeft: 4,
-                  transition: 'color 0.15s ease'
-                }}
-                title={`Copy Path: ${activeFile.fullPath || activeFile.path}`}
-              >
-                {copied ? <Check size={13} style={{ color: '#4ade80' }} /> : <Copy size={13} />}
-              </button>
-            </div>
-          </>
-        )}
+                {/* 1-Click Copy Full Path Button */}
+                <button
+                  onClick={handleCopyPath}
+                  className="tool-btn"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: copied ? '#4ade80' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '2px 4px',
+                    borderRadius: 4,
+                    marginLeft: 4,
+                    transition: 'color 0.15s ease'
+                  }}
+                  title={`Copy Path: ${activeFile.fullPath || activeFile.path}`}
+                >
+                  {copied ? <Check size={13} style={{ color: '#4ade80' }} /> : <Copy size={13} />}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Right: View Mode Switches & Reading Themes */}
+      {/* Right: Reading Themes */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {activeFile && activeFile.type === 'md' && (
-          <div className="view-mode-toggle">
-            <button 
-              className={`mode-btn ${viewMode === 'preview' ? 'active' : ''}`}
-              onClick={() => onSetViewMode('preview')}
-              title="Preview Reading Mode"
-            >
-              <Eye size={14} /> Preview
-            </button>
-            <button 
-              className={`mode-btn ${viewMode === 'split' ? 'active' : ''}`}
-              onClick={() => onSetViewMode('split')}
-              title="Split View (Editor + Live Preview)"
-            >
-              <Columns size={14} /> Split View
-            </button>
-            <button 
-              className={`mode-btn ${viewMode === 'focus' ? 'active' : ''}`}
-              onClick={() => onSetViewMode('focus')}
-              title="Focus Fullscreen Editor"
-            >
-              <Maximize2 size={14} /> Focus
-            </button>
-
-            {availablePdfFile && (
-              <button 
-                className={`mode-btn ${viewMode === 'split-pdf' ? 'active' : ''}`}
-                onClick={() => onSetViewMode('split-pdf')}
-                title="Split Note + PDF Reference Book View"
-                style={{ color: '#fb7185' }}
-              >
-                <BookOpen size={14} /> Split PDF Note
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Theme Selector */}
         <div style={{ display: 'flex', gap: 3, background: 'var(--bg-surface-elevated)', padding: 3, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>

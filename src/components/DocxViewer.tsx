@@ -16,7 +16,10 @@ import {
   BookOpen,
   Layers,
   Book,
-  Bookmark
+  Bookmark,
+  ExternalLink,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import type { FileItem } from '../types';
 import { getFileState, saveFileState } from '../utils/stateMemory';
@@ -47,6 +50,43 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
 
   // Search State
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeMatchIdx, setActiveMatchIdx] = useState<number>(0);
+
+  const matchCount = useMemo(() => {
+    if (!searchQuery.trim() || !rawHtml) return 0;
+    const text = rawHtml.replace(/<[^>]*>/g, ' ').toLowerCase();
+    const query = searchQuery.trim().toLowerCase();
+    let count = 0;
+    let pos = 0;
+    while ((pos = text.indexOf(query, pos)) !== -1) {
+      count++;
+      pos += query.length;
+    }
+    return count;
+  }, [searchQuery, rawHtml]);
+
+  const scrollToMatch = (idx: number) => {
+    setTimeout(() => {
+      const marks = document.querySelectorAll('.docx-search-highlight');
+      if (marks && marks[idx]) {
+        marks[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 50);
+  };
+
+  const handleNextMatch = () => {
+    if (matchCount === 0) return;
+    const nextIdx = (activeMatchIdx + 1) % matchCount;
+    setActiveMatchIdx(nextIdx);
+    scrollToMatch(nextIdx);
+  };
+
+  const handlePrevMatch = () => {
+    if (matchCount === 0) return;
+    const prevIdx = (activeMatchIdx - 1 + matchCount) % matchCount;
+    setActiveMatchIdx(prevIdx);
+    scrollToMatch(prevIdx);
+  };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileKey = file.fullPath || file.id;
@@ -253,6 +293,12 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
     URL.revokeObjectURL(url);
   };
 
+  const handleOpenExternal = async () => {
+    if (file.fullPath && window.electronAPI?.openExternalFile) {
+      await window.electronAPI.openExternalFile(file.fullPath);
+    }
+  };
+
   return (
     <div className="content-area" style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-main)' }}>
       {/* 1. Microsoft Word Ribbon Header Bar */}
@@ -271,13 +317,48 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
           <input
             type="text"
             className="csv-search-input"
-            style={{ paddingLeft: 30, paddingRight: 26, width: 210, fontSize: '0.8rem' }}
+            style={{ paddingLeft: 30, paddingRight: searchQuery ? 80 : 26, width: 220, fontSize: '0.8rem' }}
             placeholder="Search document text..."
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => {
+              setSearchQuery(e.target.value);
+              setActiveMatchIdx(0);
+            }}
           />
           {searchQuery && (
-            <X size={14} style={{ position: 'absolute', right: 10, cursor: 'pointer', color: 'var(--text-dim)' }} onClick={() => setSearchQuery('')} />
+            <div style={{ position: 'absolute', right: 6, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: '0.68rem', fontWeight: 800, color: matchCount > 0 ? '#0284c7' : 'var(--text-muted)' }}>
+                {matchCount > 0 ? `${activeMatchIdx + 1}/${matchCount}` : '0/0'}
+              </span>
+              <button 
+                type="button" 
+                className="btn-icon" 
+                style={{ width: 18, height: 18 }} 
+                onClick={handlePrevMatch} 
+                disabled={matchCount === 0}
+                title="Previous Match"
+              >
+                <ChevronUp size={12} />
+              </button>
+              <button 
+                type="button" 
+                className="btn-icon" 
+                style={{ width: 18, height: 18 }} 
+                onClick={handleNextMatch} 
+                disabled={matchCount === 0}
+                title="Next Match"
+              >
+                <ChevronDown size={12} />
+              </button>
+              <X 
+                size={13} 
+                style={{ cursor: 'pointer', color: 'var(--text-dim)', marginLeft: 2 }} 
+                onClick={() => {
+                  setSearchQuery('');
+                  setActiveMatchIdx(0);
+                }} 
+              />
+            </div>
           )}
         </div>
 
@@ -359,6 +440,30 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
           <button className="tool-btn" onClick={handleDownload} title="Download Original .DOCX File">
             <Download size={15} />
           </button>
+
+          {file.fullPath && (
+            <button 
+              className="tool-btn"
+              onClick={handleOpenExternal}
+              style={{
+                background: 'rgba(2, 132, 199, 0.15)',
+                color: '#0284c7',
+                border: '1px solid rgba(2, 132, 199, 0.3)',
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-md)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontWeight: 700,
+                fontSize: '0.76rem',
+                cursor: 'pointer'
+              }}
+              title="Open Document in Microsoft Word / Desktop External Viewer"
+            >
+              <ExternalLink size={14} />
+              <span>Open External</span>
+            </button>
+          )}
         </div>
       </div>
 

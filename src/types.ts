@@ -2,6 +2,7 @@ export type FileType = 'folder' | 'md' | 'pdf' | 'docx' | 'pptx' | 'image' | 'vi
 
 export interface FileItem {
   id: string;
+  tabId?: string;
   name: string;
   path: string;
   fullPath?: string;
@@ -59,7 +60,8 @@ export interface TableOfContentsItem {
   level: number;
 }
 
-export type ViewMode = 'dashboard' | 'split' | 'preview' | 'focus' | 'split-pdf';
+export type ViewMode = 'dashboard' | 'split' | 'preview' | 'focus';
+export type SplitLayoutMode = 1 | 2;
 
 export interface PdfAnnotation {
   id: string;

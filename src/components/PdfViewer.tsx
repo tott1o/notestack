@@ -1,5 +1,18 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { FileText, Download, ChevronLeft, ChevronRight, Layers, Cpu, ZoomIn, ZoomOut } from 'lucide-react';
+import { 
+  FileText, 
+  Download, 
+  ChevronLeft, 
+  ChevronRight, 
+  Layers, 
+  Cpu, 
+  ZoomIn, 
+  ZoomOut, 
+  Search, 
+  X, 
+  ChevronUp, 
+  ChevronDown 
+} from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { FileItem } from '../types';
 import { getFileState, saveFileState } from '../utils/stateMemory';
@@ -9,6 +22,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 
 interface PdfViewerProps {
   file: FileItem;
+}
+
+interface PdfMatch {
+  pageNumber: number;
+  matchIndex: number;
 }
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
@@ -22,6 +40,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   const [zoomScale, setZoomScale] = useState<number>(1.0);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Search State
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<PdfMatch[]>([]);
+  const [currentMatchIdx, setCurrentMatchIdx] = useState<number>(0);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -34,7 +58,27 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     const initialPage = saved.pageNumber || 1;
     setPageNumber(initialPage);
     setInputPage(String(initialPage));
+    setSearchQuery('');
+    setSearchResults([]);
+    setCurrentMatchIdx(0);
   }, [fileKey]);
+
+  // Trackpad Pinch & Ctrl+Wheel Zoom Listener for PDF Viewer
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const zoomFactor = e.deltaY < 0 ? 1.06 : 0.94;
+        setZoomScale(prev => parseFloat(Math.min(3.0, Math.max(0.4, prev * zoomFactor)).toFixed(2)));
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
 
   useEffect(() => {
     let url: string | null = null;
@@ -83,6 +127,75 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     return () => { isMounted = false; };
   }, [pdfUrl]);
 
+  // PDF Text Search Engine across pages
+  useEffect(() => {
+    if (!searchQuery.trim() || !pdfDocRef.current || numPages === 0) {
+      setSearchResults([]);
+      setCurrentMatchIdx(0);
+      setIsSearching(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsSearching(true);
+
+    const searchTimer = setTimeout(async () => {
+      const pdf = pdfDocRef.current;
+      if (!pdf) return;
+
+      const query = searchQuery.trim().toLowerCase();
+      const matches: PdfMatch[] = [];
+
+      try {
+        for (let pNum = 1; pNum <= pdf.numPages; pNum++) {
+          if (isCancelled) break;
+          const page = await pdf.getPage(pNum);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map((item: any) => item.str || '').join(' ').toLowerCase();
+
+          let pos = 0;
+          let matchIndex = 0;
+          while ((pos = pageText.indexOf(query, pos)) !== -1) {
+            matches.push({ pageNumber: pNum, matchIndex: matchIndex++ });
+            pos += query.length;
+          }
+        }
+
+        if (!isCancelled) {
+          setSearchResults(matches);
+          setCurrentMatchIdx(0);
+          setIsSearching(false);
+
+          if (matches.length > 0) {
+            handlePageJump(matches[0].pageNumber);
+          }
+        }
+      } catch (err) {
+        console.error("PDF search error:", err);
+        if (!isCancelled) setIsSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(searchTimer);
+    };
+  }, [searchQuery, numPages]);
+
+  const handleNextMatch = () => {
+    if (searchResults.length === 0) return;
+    const nextIdx = (currentMatchIdx + 1) % searchResults.length;
+    setCurrentMatchIdx(nextIdx);
+    handlePageJump(searchResults[nextIdx].pageNumber);
+  };
+
+  const handlePrevMatch = () => {
+    if (searchResults.length === 0) return;
+    const prevIdx = (currentMatchIdx - 1 + searchResults.length) % searchResults.length;
+    setCurrentMatchIdx(prevIdx);
+    handlePageJump(searchResults[prevIdx].pageNumber);
+  };
+
   // Render PDF Pages into ready DOM placeholders
   const renderAllPages = useCallback(async () => {
     if (!pdfDocRef.current || !containerRef.current) return;
@@ -110,7 +223,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         wrapper.innerHTML = '';
         wrapper.appendChild(canvas);
         wrapper.setAttribute('data-rendered', 'true');
-        wrapper.style.minHeight = 'auto'; // Remove placeholder min-height once canvas is attached
+        wrapper.style.minHeight = 'auto';
 
         const renderContext = {
           canvasContext: context,
@@ -130,7 +243,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     }
   }, [engineMode, loading, numPages, renderAllPages]);
 
-  // Instant 0 ms Scroll Restoration once page placeholders exist
   useLayoutEffect(() => {
     if (engineMode === 'canvas' && !loading && numPages > 0 && containerRef.current) {
       const saved = getFileState(fileKey);
@@ -145,7 +257,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     }
   }, [engineMode, loading, numPages, fileKey]);
 
-  // Save scroll position when unmounting or switching file
   useEffect(() => {
     return () => {
       if (containerRef.current && containerRef.current.scrollTop >= 0) {
@@ -157,11 +268,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     };
   }, [fileKey, pageNumber]);
 
-  // Automatic Continuous Scroll & Active Page Tracking
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
-
-    // Determine currently visible center page
     let activePage = pageNumber;
     let minDistance = Infinity;
 
@@ -219,11 +327,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
 
   return (
     <div className="content-area" style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-main)' }}>
-      {/* Header Bar with Dual Engine Switcher, Zoom & Auto-Save Indicator */}
+      {/* Header Bar with Dual Engine Switcher, Search, Zoom & Page Controls */}
       <div className="editor-toolbar" style={{ padding: '8px 16px', background: 'var(--bg-surface)', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.88rem', color: 'var(--text-main)' }}>
           <FileText size={16} style={{ color: '#ef4444' }} />
-          <span style={{ fontWeight: 600 }}>{file.name}</span>
+          <span style={{ fontWeight: 700 }}>{file.name}</span>
         </div>
 
         {/* Engine Mode Switcher */}
@@ -232,10 +340,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
             onClick={() => setEngineMode('canvas')}
             className={`tool-btn ${engineMode === 'canvas' ? 'active' : ''}`}
             style={{ padding: '3px 10px', fontSize: '0.75rem', fontWeight: 700 }}
-            title="100% Exact Continuous Scroll Reader with Auto-Save (Default)"
+            title="Continuous Reader"
           >
             <Layers size={13} style={{ color: 'var(--accent-emerald)' }} />
-            <span>Continuous Reader (Default)</span>
+            <span>Continuous Reader</span>
           </button>
 
           <button
@@ -285,8 +393,53 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
           >
             <ChevronRight size={15} />
           </button>
-
         </form>
+
+        {/* Live Word Search Input for PDF */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginLeft: 8 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-dim)' }} />
+          <input
+            type="text"
+            className="csv-search-input"
+            style={{ paddingLeft: 30, paddingRight: searchQuery ? 80 : 26, width: 220, fontSize: '0.8rem' }}
+            placeholder="Search PDF text..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+
+          {searchQuery && (
+            <div style={{ position: 'absolute', right: 6, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: '0.68rem', fontWeight: 800, color: searchResults.length > 0 ? '#ef4444' : 'var(--text-muted)' }}>
+                {isSearching ? '...' : searchResults.length > 0 ? `${currentMatchIdx + 1}/${searchResults.length}` : '0/0'}
+              </span>
+              <button 
+                type="button" 
+                className="btn-icon" 
+                style={{ width: 18, height: 18 }} 
+                onClick={handlePrevMatch} 
+                disabled={searchResults.length === 0}
+                title="Previous Match"
+              >
+                <ChevronUp size={12} />
+              </button>
+              <button 
+                type="button" 
+                className="btn-icon" 
+                style={{ width: 18, height: 18 }} 
+                onClick={handleNextMatch} 
+                disabled={searchResults.length === 0}
+                title="Next Match"
+              >
+                <ChevronDown size={12} />
+              </button>
+              <X 
+                size={13} 
+                style={{ cursor: 'pointer', color: 'var(--text-dim)', marginLeft: 2 }} 
+                onClick={() => setSearchQuery('')} 
+              />
+            </div>
+          )}
+        </div>
 
         {/* Zoom Controls */}
         {engineMode === 'canvas' && (
@@ -335,40 +488,57 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
                 <h3 style={{ color: 'var(--text-main)', fontWeight: 700 }}>Rendering Continuous PDF Stream...</h3>
               </div>
             ) : (
-              Array.from({ length: numPages }, (_, i) => i + 1).map(pNum => (
-                <div 
-                  key={`${file.id}-page-${pNum}`}
-                  ref={el => { if (el) pageRefs.current.set(pNum, el); }}
-                  style={{ 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    alignItems: 'center', 
-                    width: `${Math.round(780 * zoomScale)}px`, 
-                    maxWidth: '95%',
-                    minHeight: '1100px', // Placeholder height so scrollHeight is immediately full
-                    transition: 'width 0.15s ease'
-                  }}
-                >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 700, marginBottom: 6 }}>
-                    — PAGE {pNum} OF {numPages} —
+              Array.from({ length: numPages }, (_, i) => i + 1).map(pNum => {
+                const isMatchPage = searchResults.some(m => m.pageNumber === pNum);
+                const currentMatch = searchResults[currentMatchIdx];
+                const isCurrentMatchPage = currentMatch?.pageNumber === pNum;
+
+                return (
+                  <div 
+                    key={`${file.id}-page-${pNum}`}
+                    ref={el => { if (el) pageRefs.current.set(pNum, el); }}
+                    style={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      width: `${Math.round(780 * zoomScale)}px`, 
+                      maxWidth: '95%',
+                      minHeight: '1100px',
+                      transition: 'width 0.15s ease',
+                      border: isCurrentMatchPage ? '3px solid #f97316' : isMatchPage ? '2px solid rgba(249, 115, 22, 0.4)' : 'none',
+                      borderRadius: 8,
+                      position: 'relative'
+                    }}
+                  >
+                    {isMatchPage && (
+                      <div 
+                        style={{ 
+                          position: 'absolute', 
+                          top: -12, 
+                          right: 16, 
+                          background: isCurrentMatchPage ? '#f97316' : 'rgba(249, 115, 22, 0.8)', 
+                          color: '#fff', 
+                          fontSize: '0.68rem', 
+                          fontWeight: 800, 
+                          padding: '2px 8px', 
+                          borderRadius: 4,
+                          zIndex: 10
+                        }}
+                      >
+                        SEARCH MATCH (PAGE {pNum})
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         ) : (
-          pdfUrl ? (
-            <embed
-              key={`${file.id}-page-${pageNumber}`}
-              src={`${pdfUrl}#page=${pageNumber}&toolbar=1&navpanes=1&scrollbar=1`}
-              type="application/pdf"
-              style={{ width: '100%', height: '100%', border: 'none' }}
-            />
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-dim)' }}>
-              Loading MS Edge PDF document...
-            </div>
-          )
+          <iframe 
+            src={pdfUrl || ''} 
+            style={{ width: '100%', height: '100%', border: 'none' }} 
+            title={file.name}
+          />
         )}
       </div>
     </div>

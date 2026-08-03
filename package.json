@@ -13,11 +13,13 @@
     "preview": "vite preview",
     "electron:start": "electron .",
     "electron:dev": "concurrently \"cross-env BROWSER=none npm run dev\" \"electron .\"",
+    "package": "npm run build && electron-packager . NoteStack --platform=win32 --arch=x64 --icon=notestacklogo.ico --out=dist_app --overwrite",
     "dist": "npm run build && electron-builder --win"
   },
   "build": {
     "appId": "com.notestack.app",
     "productName": "NoteStack",
+    "icon": "notestacklogo.ico",
     "npmRebuild": false,
     "directories": {
       "output": "dist_app"
@@ -32,12 +34,15 @@
     }
   },
   "dependencies": {
+    "@types/jquery": "^4.0.1",
+    "jquery": "^4.0.0",
     "jszip": "^3.10.1",
     "katex": "^0.18.1",
     "lucide-react": "^1.26.0",
     "mammoth": "^1.12.0",
     "marked": "^18.0.7",
     "pdfjs-dist": "^6.1.200",
+    "pptx-browser": "^4.1.5",
     "prismjs": "^1.30.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

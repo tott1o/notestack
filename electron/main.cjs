@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -93,12 +93,16 @@ function scanDirectoryRecursively(dirPath, moduleName = '', currentRelPath = '')
 }
 
 function createWindow() {
+  const iconPath = path.join(__dirname, '../notestacklogo.ico');
+  const appIcon = nativeImage.createFromPath(iconPath);
+
   mainWindow = new BrowserWindow({
     width: 1366,
     height: 868,
     minWidth: 1000,
     minHeight: 650,
     title: 'NoteStack - Desktop Note & Reference Manager',
+    icon: appIcon,
     backgroundColor: '#0b0f19',
     autoHideMenuBar: true,
     webPreferences: {
@@ -108,6 +112,10 @@ function createWindow() {
       webSecurity: false
     }
   });
+
+  if (process.platform === 'win32') {
+    mainWindow.setIcon(appIcon);
+  }
 
   const indexPath = path.join(__dirname, '../dist/index.html');
   

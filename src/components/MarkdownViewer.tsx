@@ -15,14 +15,12 @@ import {
   AlertCircle,
   Save,
   Check,
-  Edit3,
   Eye,
+  Edit3,
   Columns,
   Quote,
   Minus,
   Link as LinkIcon,
-  Maximize2,
-  Minimize2,
   ListFilter,
   CheckCircle2,
   Layers,
@@ -57,10 +55,9 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 }) => {
   const [content, setContent] = useState<string>(file.content || '');
   const [isSaved, setIsSaved] = useState<boolean>(true);
-  const [activeMode, setActiveMode] = useState<'preview' | 'edit' | 'split'>(viewMode || 'preview');
+  const [activeMode, setActiveMode] = useState<'preview' | 'edit' | 'split'>('split');
   const [fontSize, setFontSize] = useState<number>(16);
   const [showToc, setShowToc] = useState<boolean>(false);
-  const [isFullWidth, setIsFullWidth] = useState<boolean>(false);
   const [activeLine, setActiveLine] = useState<number>(1);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -144,10 +141,32 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
   // Sync view mode when header bar viewMode prop changes
   useEffect(() => {
-    if (viewMode) {
+    if (viewMode === 'edit' || viewMode === 'split') {
       setActiveMode(viewMode);
     }
   }, [viewMode]);
+
+  // Trackpad Pinch & Ctrl+Wheel Zoom Listener for Markdown Preview & Editor
+  useEffect(() => {
+    const previewEl = previewRef.current;
+    const textareaEl = textareaRef.current;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 1 : -1;
+        setFontSize(prev => Math.min(32, Math.max(10, prev + delta)));
+      }
+    };
+
+    if (previewEl) previewEl.addEventListener('wheel', handleWheel, { passive: false });
+    if (textareaEl) textareaEl.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      if (previewEl) previewEl.removeEventListener('wheel', handleWheel);
+      if (textareaEl) textareaEl.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -424,12 +443,12 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     <div className="viewer-shell">
       {/* ── Toolbar Header Ribbon ────────────────────────────────────────── */}
       <div className="viewer-toolbar">
-        {/* 1. View Mode Switcher Pills (Far Left) */}
-        <div className="mode-pill-container">
+        {/* View Mode Switcher Pills */}
+        <div className="mode-pill-container" style={{ display: 'flex', alignItems: 'center', gap: 4, marginRight: 8 }}>
           <button 
             className={`mode-pill ${activeMode === 'preview' ? 'active' : ''}`}
             onClick={() => setActiveMode('preview')}
-            title="Reader Mode"
+            title="Preview Reader Mode"
           >
             <Eye size={13} /> Preview
           </button>
@@ -437,7 +456,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
           <button 
             className={`mode-pill ${activeMode === 'split' ? 'active' : ''}`}
             onClick={() => setActiveMode('split')}
-            title="Split Editor & Preview"
+            title="Split Editor & Live Preview"
           >
             <Columns size={13} /> Split
           </button>
@@ -453,9 +472,8 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
         <span className="toolbar-sep" />
 
-        {/* 2. Formatting Actions (Active in Edit or Split mode) */}
-        {(activeMode === 'edit' || activeMode === 'split') && (
-          <div className="toolbar-group formatting-group">
+        {/* Formatting Actions */}
+        <div className="toolbar-group formatting-group">
             <button className="tool-btn" onClick={() => insertFormatting('**', '**')} title="Bold (Ctrl+B)"><Bold size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('*', '*')} title="Italic (Ctrl+I)"><Italic size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('~~', '~~')} title="Strikethrough (~~text~~)"><Strikethrough size={14} /></button>
@@ -475,7 +493,6 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
             <button className="tool-btn" onClick={() => insertFormatting('\n---\n')} title="Section Divider"><Minus size={14} /></button>
             <button className="tool-btn" onClick={() => insertFormatting('[', '](url)')} title="Insert Link (Ctrl+K)"><LinkIcon size={14} /></button>
           </div>
-        )}
 
         {/* Font Size Adjuster */}
         <div className="font-size-stepper">
@@ -513,14 +530,6 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
           >
             <BookOpen size={14} style={{ color: 'var(--primary)' }} />
             <span>Flashcards</span>
-          </button>
-
-          <button 
-            className={`tool-btn ${isFullWidth ? 'active' : ''}`}
-            onClick={() => setIsFullWidth(!isFullWidth)}
-            title={isFullWidth ? 'Compact Paper View' : 'Full-Width View'}
-          >
-            {isFullWidth ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
 
           {/* Auto-Save Indicator Badge */}
@@ -576,7 +585,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
               {/* Textarea Code Canvas */}
               <textarea
                 ref={textareaRef}
-                className="code-editor-textarea"
+                className="markdown-source-textarea"
                 style={{ fontSize: `${fontSize}px` }}
                 value={content}
                 onChange={handleChange}
@@ -600,7 +609,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
             <div 
               className="preview-paper"
               style={{ 
-                maxWidth: isFullWidth ? '100%' : '880px', 
+                maxWidth: '880px', 
                 fontSize: `${fontSize}px` 
               }}
             >

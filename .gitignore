@@ -19,6 +19,8 @@ release/
 *.rpm
 *.zip
 *.tar.gz
+notestack-config.json
+*.user.json
 
 # Logs
 logs/

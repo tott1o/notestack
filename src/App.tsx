@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { HeaderBar } from './components/HeaderBar';
 import { TabBar } from './components/TabBar';
@@ -10,13 +10,13 @@ import { ImageViewer } from './components/ImageViewer';
 import { VideoViewer } from './components/VideoViewer';
 import { CodeEditor } from './components/CodeEditor';
 import { CsvViewer } from './components/CsvViewer';
-import { SplitPdfNoteView } from './components/SplitPdfNoteView';
 import { DashboardOverview } from './components/DashboardOverview';
 import { FlashcardsModal } from './components/FlashcardsModal';
 import { CreateNoteModal } from './components/CreateNoteModal';
 import { CreateFolderModal } from './components/CreateFolderModal';
+import { QuickSearchModal } from './components/QuickSearchModal';
 
-import type { FileItem, MainDirectory, ReadingSettings, ViewMode } from './types';
+import type { FileItem, MainDirectory, ReadingSettings, ViewMode, SplitLayoutMode } from './types';
 import { EMPTY_MAIN_DIRECTORY } from './utils/sampleData';
 import { 
   openMainDirectoryFromDisk, 
@@ -40,6 +40,19 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [showFlashcards, setShowFlashcards] = useState<boolean>(false);
+  const [showQuickSearch, setShowQuickSearch] = useState<boolean>(false);
+  
+  // Sidebar Resizing & Visibility State
+  const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(260);
+  const isDraggingSidebarResizer = useRef<boolean>(false);
+
+  // Dual Split Screen Layout State (1 or 2 Panes)
+  const [splitCount, setSplitCount] = useState<SplitLayoutMode>(1);
+  const [splitRatio, setSplitRatio] = useState<number>(50); // % ratio for dual panes
+  const [paneActiveFileIds, setPaneActiveFileIds] = useState<(string | null)[]>([null, null]);
+  const [activePaneIdx, setActivePaneIdx] = useState<number>(0);
+  const isDraggingSplitter = useRef<boolean>(false);
   
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -155,26 +168,109 @@ export function App() {
     }
   };
 
+  const handleOpenInNewTab = useCallback(async (file: FileItem) => {
+    const loadedFile = await ensureFileContentLoaded(file);
+    const uniqueTabId = `${loadedFile.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const tabInstance: FileItem = {
+      ...loadedFile,
+      tabId: uniqueTabId
+    };
+    
+    setOpenTabs(prev => [...prev, tabInstance]);
+    setActiveFile(tabInstance);
+
+    const targetPane = splitCount === 1 ? 0 : activePaneIdx;
+    if (splitCount === 1) {
+      setActivePaneIdx(0);
+    }
+
+    setPaneActiveFileIds(prev => {
+      const next = [...prev];
+      next[targetPane] = uniqueTabId;
+      return next;
+    });
+    setViewMode('preview');
+  }, [splitCount, activePaneIdx]);
+
+  // Global Keyboard Shortcuts: Ctrl+D (Duplicate Tab) & Ctrl+P (Quick Vault File Search)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        if (activeFile) {
+          handleOpenInNewTab(activeFile);
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setShowQuickSearch(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [activeFile, handleOpenInNewTab]);
+
   const handleSelectFile = async (file: FileItem) => {
     const loadedFile = await ensureFileContentLoaded(file);
     setOpenTabs(prev => {
-      const exists = prev.some(t => t.id === loadedFile.id);
+      const exists = prev.some(t => (t.tabId || t.id) === (loadedFile.tabId || loadedFile.id));
       if (exists) {
-        return prev.map(t => t.id === loadedFile.id ? loadedFile : t);
+        return prev.map(t => (t.tabId || t.id) === (loadedFile.tabId || loadedFile.id) ? loadedFile : t);
       }
       return [...prev, loadedFile];
     });
     setActiveFile(loadedFile);
+    
+    // In Single View mode, always update Pane 0 and set activePaneIdx = 0
+    const targetPane = splitCount === 1 ? 0 : activePaneIdx;
+    if (splitCount === 1) {
+      setActivePaneIdx(0);
+    }
+
+    setPaneActiveFileIds(prev => {
+      const next = [...prev];
+      next[targetPane] = loadedFile.tabId || loadedFile.id;
+      return next;
+    });
     setViewMode('preview');
+  };
+
+  const handleChangeSplitCount = (count: SplitLayoutMode) => {
+    if (count === 1) {
+      // Switching back to Single View: bring currently active file to Pane 0 and reset activePaneIdx = 0
+      if (activeFile) {
+        setPaneActiveFileIds([activeFile.id, null]);
+      }
+      setActivePaneIdx(0);
+    }
+    setSplitCount(count);
+  };
+
+  const handleAssignFileToPane = (paneIdx: number, fileId: string | null) => {
+    setPaneActiveFileIds(prev => {
+      const next = [...prev];
+      next[paneIdx] = fileId;
+      return next;
+    });
+    if (fileId) {
+      const matched = openTabs.find(t => t.id === fileId);
+      if (matched) {
+        setActiveFile(matched);
+        ensureFileContentLoaded(matched);
+      }
+    }
+  };
+
+  const handleReorderTabs = (reorderedTabs: FileItem[]) => {
+    setOpenTabs(reorderedTabs);
   };
 
   const handleCloseTab = (fileId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setOpenTabs(prev => {
-      const closingIdx = prev.findIndex(t => t.id === fileId);
-      const nextTabs = prev.filter(t => t.id !== fileId);
+      const closingIdx = prev.findIndex(t => (t.tabId || t.id) === fileId || t.id === fileId);
+      const nextTabs = prev.filter(t => (t.tabId || t.id) !== fileId && t.id !== fileId);
 
-      if (activeFile?.id === fileId) {
+      if ((activeFile?.tabId || activeFile?.id) === fileId || activeFile?.id === fileId) {
         if (nextTabs.length > 0) {
           const fallbackIdx = Math.max(0, closingIdx - 1);
           const nextActive = nextTabs[fallbackIdx];
@@ -184,9 +280,57 @@ export function App() {
           setViewMode('dashboard');
         }
       }
+
       return nextTabs;
     });
+
+    // When closing ANY tab while in split screen view, automatically collapse back to Single Screen view!
+    if (splitCount === 2) {
+      handleChangeSplitCount(1);
+    }
+
+    setPaneActiveFileIds(prev => prev.map(id => id === fileId ? null : id));
   };
+
+  // Enforce automatic single-screen view constraint if only 1 tab is open
+  useEffect(() => {
+    if (openTabs.length <= 1 && splitCount === 2) {
+      setSplitCount(1);
+    }
+  }, [openTabs.length, splitCount]);
+
+  // Drag Resizing for Sidebar and Dual Split Screen
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingSidebarResizer.current) {
+        const newWidth = Math.max(160, Math.min(500, e.clientX));
+        setSidebarWidth(newWidth);
+      }
+      if (isDraggingSplitter.current) {
+        const currentSidebarW = isSidebarVisible ? sidebarWidth : 0;
+        const totalWidth = window.innerWidth - currentSidebarW;
+        if (totalWidth > 0) {
+          const newRatio = ((e.clientX - currentSidebarW) / totalWidth) * 100;
+          if (newRatio >= 20 && newRatio <= 80) {
+            setSplitRatio(Math.round(newRatio));
+          }
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      isDraggingSidebarResizer.current = false;
+      isDraggingSplitter.current = false;
+      document.body.style.cursor = 'default';
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isSidebarVisible, sidebarWidth]);
 
   const handleContentChange = useCallback((newContent: string) => {
     if (!activeFile) return;
@@ -424,53 +568,248 @@ export function App() {
     }
   };
 
-  const [selectedPdfFile, setSelectedPdfFile] = useState<FileItem | null>(null);
 
-  const allPdfFiles = useMemo(() => {
-    const collectPdfs = (items: FileItem[]): FileItem[] => {
-      let list: FileItem[] = [];
-      for (const item of items) {
-        if (item.type === 'pdf') {
-          list.push(item);
-        }
-        if (item.children) {
-          list = list.concat(collectPdfs(item.children));
-        }
-      }
-      return list;
-    };
-    const vaultPdfs = collectPdfs(mainDir.files);
 
-    if (activeFile && activeFile.moduleName) {
-      const sameFolderPdfs = vaultPdfs.filter(pdf => pdf.moduleName === activeFile.moduleName);
-      if (sameFolderPdfs.length > 0) return sameFolderPdfs;
+  const renderFileViewer = (file: FileItem) => {
+    switch (file.type) {
+      case 'md':
+        return (
+          <MarkdownViewer 
+            file={file}
+            onContentChange={(c) => {
+              if (activeFile?.id === file.id) handleContentChange(c);
+            }}
+            settings={settings}
+            onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
+            onOpenFlashcards={() => setShowFlashcards(true)}
+            viewMode={viewMode === 'focus' ? 'split' : viewMode as any}
+          />
+        );
+      case 'code':
+        return (
+          <CodeEditor 
+            file={file} 
+            onContentChange={(c) => {
+              if (activeFile?.id === file.id) handleContentChange(c);
+            }} 
+          />
+        );
+      case 'csv':
+        return (
+          <CsvViewer 
+            file={file} 
+            onContentChange={(c) => {
+              if (activeFile?.id === file.id) handleContentChange(c);
+            }} 
+          />
+        );
+      case 'image':
+        return <ImageViewer file={file} />;
+      case 'video':
+        return (
+          <VideoViewer 
+            file={file} 
+            onExportNotesToMarkdown={(mdText) => {
+              const noteTitle = `VideoNotes-${file.name.replace(/\.[^/.]+$/, '')}.md`;
+              handleCreateNoteSubmit(noteTitle, file.moduleName, mdText);
+            }}
+          />
+        );
+      case 'pdf':
+        return <PdfViewer file={file} />;
+      case 'docx':
+        return <DocxViewer file={file} />;
+      case 'pptx':
+        return <PptxViewer file={file} settings={settings} />;
+      default:
+        return (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+            Unsupported file type ({file.extension}).
+          </div>
+        );
     }
-    return vaultPdfs;
-  }, [mainDir.files, activeFile]);
+  };
 
-  const activePdfFile = selectedPdfFile && allPdfFiles.some(p => p.id === selectedPdfFile.id)
-    ? selectedPdfFile
-    : (allPdfFiles.length > 0 ? allPdfFiles[0] : null);
+  const renderPaneContainer = (paneIdx: number) => {
+    let targetFileId = paneActiveFileIds[paneIdx];
+    if (!targetFileId) {
+      if (paneIdx === 0) {
+        targetFileId = activeFile ? activeFile.id : 'dashboard';
+      } else {
+        const fallback = openTabs[paneIdx] || openTabs[0];
+        targetFileId = fallback ? fallback.id : 'dashboard';
+      }
+    }
+
+    const assignedFile = targetFileId === 'dashboard' ? null : openTabs.find(t => t.id === targetFileId);
+    const isPaneFocused = activePaneIdx === paneIdx;
+
+    return (
+      <div 
+        key={paneIdx}
+        onClick={() => setActivePaneIdx(paneIdx)}
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          width: '100%',
+          overflow: 'hidden',
+          background: 'var(--bg-main)',
+          borderRadius: splitCount > 1 ? 8 : 0,
+          border: splitCount > 1 ? '1px solid var(--border-color)' : 'none',
+          boxShadow: 'none',
+          transition: 'border-color 0.15s ease'
+        }}
+      >
+        {splitCount > 1 && (
+          <div 
+            className="pro-pane-header"
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              padding: '6px 14px', 
+              background: 'var(--bg-surface-elevated, #1e293b)', 
+              borderBottom: '1px solid var(--border-color)',
+              borderTop: isPaneFocused ? '2px solid var(--primary, #6366f1)' : '2px solid transparent',
+              fontSize: '0.74rem',
+              gap: 8,
+              userSelect: 'none',
+              transition: 'border-color 0.15s ease'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span 
+                style={{ 
+                  fontWeight: 900, 
+                  fontSize: '0.66rem', 
+                  background: isPaneFocused ? 'var(--primary, #6366f1)' : 'var(--bg-surface)', 
+                  color: isPaneFocused ? '#fff' : 'var(--text-muted)', 
+                  padding: '2px 8px', 
+                  borderRadius: 4,
+                  letterSpacing: '0.04em'
+                }}
+              >
+                PANE {paneIdx + 1}
+              </span>
+
+              {assignedFile && (
+                <span 
+                  style={{ 
+                    fontSize: '0.64rem', 
+                    fontWeight: 800, 
+                    textTransform: 'uppercase',
+                    background: 'var(--primary-light, rgba(99,102,241,0.15))', 
+                    color: 'var(--primary, #6366f1)',
+                    padding: '2px 6px',
+                    borderRadius: 4
+                  }}
+                >
+                  {assignedFile.type}
+                </span>
+              )}
+
+              <select
+                style={{
+                  background: 'var(--bg-surface)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '3px 10px',
+                  fontSize: '0.76rem',
+                  fontWeight: 700,
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+                value={targetFileId || 'dashboard'}
+                onChange={(e) => handleAssignFileToPane(paneIdx, e.target.value === 'dashboard' ? null : e.target.value)}
+              >
+                <option value="dashboard">📊 Dashboard Overview</option>
+                {openTabs.map(t => (
+                  <option key={t.id} value={t.id}>
+                    📄 {t.name} ({t.type})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {assignedFile && (
+                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  {assignedFile.moduleName || 'Root'}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
+          {!assignedFile || targetFileId === 'dashboard' ? (
+            <DashboardOverview 
+              mainDir={mainDir}
+              onSelectMainDirectory={handleSelectMainDirectory}
+              onSelectFile={handleSelectFile}
+              onCreateNewNote={triggerOpenCreateModal}
+              onCreateFolder={triggerOpenCreateFolderModal}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          ) : (
+            renderFileViewer(assignedFile)
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="app-container">
-      {viewMode !== 'focus' && (
-        <Sidebar 
-          mainDir={mainDir}
-          activeFile={activeFile}
-          onSelectFile={handleSelectFile}
-          onSelectMainDirectory={handleSelectMainDirectory}
-          onRemoveVault={handleRemoveVault}
-          onCreateNewNote={triggerOpenCreateModal}
-          onCreateNewFolder={triggerOpenCreateFolderModal}
-          onToggleFavorite={handleToggleFavorite}
-          onDeleteItem={handleDeleteItem}
-          onRenameItem={handleRenameItem}
-          selectedFilter={selectedFilter}
-          setSelectedFilter={setSelectedFilter}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-        />
+      {isSidebarVisible && viewMode !== 'focus' && (
+        <>
+          <div style={{ width: `${sidebarWidth}px`, height: '100%', flexShrink: 0, overflow: 'hidden' }}>
+            <Sidebar 
+              mainDir={mainDir}
+              activeFile={activeFile}
+              onSelectFile={handleSelectFile}
+              onSelectMainDirectory={handleSelectMainDirectory}
+              onRemoveVault={handleRemoveVault}
+              onCreateNewNote={triggerOpenCreateModal}
+              onCreateNewFolder={triggerOpenCreateFolderModal}
+              onToggleFavorite={handleToggleFavorite}
+              onDeleteItem={handleDeleteItem}
+              onRenameItem={handleRenameItem}
+              onOpenInNewTab={handleOpenInNewTab}
+              selectedFilter={selectedFilter}
+              setSelectedFilter={setSelectedFilter}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+            />
+          </div>
+
+          {/* Sidebar Resizer Handle */}
+          <div
+            className="sidebar-resizer-bar"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isDraggingSidebarResizer.current = true;
+              document.body.style.cursor = 'col-resize';
+            }}
+            onDoubleClick={() => setSidebarWidth(260)}
+            style={{
+              width: 6,
+              height: '100%',
+              cursor: 'col-resize',
+              background: 'var(--bg-surface-elevated, #1e293b)',
+              borderLeft: '1px solid var(--border-color)',
+              borderRight: '1px solid var(--border-color)',
+              zIndex: 15,
+              userSelect: 'none',
+              flexShrink: 0,
+              transition: 'background 0.15s ease'
+            }}
+            title="Drag to resize sidebar width | Double-click to reset 260px"
+          />
+        </>
       )}
 
       <main className="main-canvas">
@@ -482,130 +821,81 @@ export function App() {
           settings={settings}
           onUpdateSettings={(newSet) => setSettings(prev => ({ ...prev, ...newSet }))}
           onGoToDashboard={() => setViewMode('dashboard')}
-          availablePdfFile={activePdfFile}
+          isSidebarVisible={isSidebarVisible && viewMode !== 'focus'}
+          onToggleSidebar={() => setIsSidebarVisible(prev => !prev)}
         />
 
         <TabBar 
           openTabs={openTabs}
           activeFile={activeFile}
           onSelectTab={(file) => {
-            setActiveFile(file);
+            handleSelectFile(file);
             if (viewMode === 'dashboard') setViewMode('preview');
           }}
           onCloseTab={handleCloseTab}
-          onGoToDashboard={() => setViewMode('dashboard')}
+          onGoToDashboard={() => {
+            setViewMode('dashboard');
+            handleAssignFileToPane(activePaneIdx, 'dashboard');
+          }}
           isDashboardActive={viewMode === 'dashboard' || !activeFile}
-          onNewNoteClick={() => triggerOpenCreateModal()}
+          onNewNoteClick={() => setShowQuickSearch(true)}
+          onReorderTabs={handleReorderTabs}
+          splitCount={splitCount}
+          onChangeSplitCount={handleChangeSplitCount}
         />
 
-        <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
-          {/* 1. Dashboard Overview Workspace Container */}
-          <div 
-            style={{ 
-              position: 'absolute', 
-              inset: 0, 
-              visibility: (viewMode === 'dashboard' || !activeFile) ? 'visible' : 'hidden', 
-              opacity: (viewMode === 'dashboard' || !activeFile) ? 1 : 0, 
-              pointerEvents: (viewMode === 'dashboard' || !activeFile) ? 'auto' : 'none', 
-              zIndex: (viewMode === 'dashboard' || !activeFile) ? 1 : -1, 
-              display: 'flex', 
-              flexDirection: 'column', 
-              width: '100%', 
-              height: '100%' 
-            }}
-          >
-            <DashboardOverview 
-              mainDir={mainDir}
-              onSelectMainDirectory={handleSelectMainDirectory}
-              onSelectFile={handleSelectFile}
-              onCreateNewNote={triggerOpenCreateModal}
-              onCreateFolder={triggerOpenCreateFolderModal}
-              onToggleFavorite={handleToggleFavorite}
-            />
-          </div>
-
-          {/* 2. Persistent DOM Multi-Tab Viewer Containers (1 Container Per Open Tab for Instant 0ms Switching) */}
-          {openTabs.map((file) => {
-            const isTabActive = viewMode !== 'dashboard' && activeFile?.id === file.id;
-
-            return (
-              <div 
-                key={file.id} 
-                style={{ 
-                  position: 'absolute', 
-                  inset: 0, 
-                  visibility: isTabActive ? 'visible' : 'hidden', 
-                  opacity: isTabActive ? 1 : 0, 
-                  pointerEvents: isTabActive ? 'auto' : 'none', 
-                  zIndex: isTabActive ? 1 : -1, 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  width: '100%', 
-                  height: '100%' 
-                }}
-              >
-                {viewMode === 'split-pdf' && file.type === 'md' ? (
-                  <SplitPdfNoteView 
-                    pdfFile={activePdfFile}
-                    allPdfFiles={allPdfFiles}
-                    onSelectPdfFile={setSelectedPdfFile}
-                    markdownFile={file}
-                    onMarkdownChange={(c) => {
-                      if (activeFile?.id === file.id) handleContentChange(c);
-                    }}
-                    settings={settings}
-                    onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
-                    onOpenFlashcards={() => setShowFlashcards(true)}
-                  />
-                ) : file.type === 'md' ? (
-                  <MarkdownViewer 
-                    file={file}
-                    onContentChange={(c) => {
-                      if (activeFile?.id === file.id) handleContentChange(c);
-                    }}
-                    settings={settings}
-                    onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
-                    onOpenFlashcards={() => setShowFlashcards(true)}
-                    viewMode={viewMode === 'focus' ? 'split' : viewMode as any}
-                  />
-                ) : file.type === 'code' ? (
-                  <CodeEditor 
-                    file={file} 
-                    onContentChange={(c) => {
-                      if (activeFile?.id === file.id) handleContentChange(c);
-                    }} 
-                  />
-                ) : file.type === 'csv' ? (
-                  <CsvViewer 
-                    file={file} 
-                    onContentChange={(c) => {
-                      if (activeFile?.id === file.id) handleContentChange(c);
-                    }} 
-                  />
-                ) : file.type === 'image' ? (
-                  <ImageViewer file={file} />
-                ) : file.type === 'video' ? (
-                  <VideoViewer 
-                    file={file} 
-                    onExportNotesToMarkdown={(mdText) => {
-                      const noteTitle = `VideoNotes-${file.name.replace(/\.[^/.]+$/, '')}.md`;
-                      handleCreateNoteSubmit(noteTitle, file.moduleName, mdText);
-                    }}
-                  />
-                ) : file.type === 'pdf' ? (
-                  <PdfViewer file={file} />
-                ) : file.type === 'docx' ? (
-                  <DocxViewer file={file} />
-                ) : file.type === 'pptx' ? (
-                  <PptxViewer file={file} settings={settings} />
-                ) : (
-                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-                    Unsupported file type ({file.extension}).
-                  </div>
-                )}
+        <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', width: '100%', height: '100%', padding: splitCount > 1 ? 6 : 0 }}>
+          {splitCount === 1 ? (
+            renderPaneContainer(0)
+          ) : (
+            <>
+              {/* Left Pane (Pane 0) */}
+              <div style={{ width: `${splitRatio}%`, height: '100%', display: 'flex' }}>
+                {renderPaneContainer(0)}
               </div>
-            );
-          })}
+
+              {/* Pro Resizable Splitter Handle */}
+              <div
+                className="pro-splitter-bar"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  isDraggingSplitter.current = true;
+                  document.body.style.cursor = 'col-resize';
+                }}
+                onDoubleClick={() => setSplitRatio(50)}
+                style={{
+                  width: 8,
+                  height: '100%',
+                  cursor: 'col-resize',
+                  background: 'var(--bg-surface-elevated, #1e293b)',
+                  borderLeft: '1px solid var(--border-color)',
+                  borderRight: '1px solid var(--border-color)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 10,
+                  userSelect: 'none',
+                  transition: 'background 0.15s ease, box-shadow 0.15s ease'
+                }}
+                title="Drag to resize | Double-click to reset 50/50 balance"
+              >
+                <div 
+                  style={{ 
+                    width: 3, 
+                    height: 32, 
+                    background: 'var(--text-muted)', 
+                    borderRadius: 2,
+                    opacity: 0.7 
+                  }} 
+                />
+              </div>
+
+              {/* Right Pane (Pane 1) */}
+              <div style={{ width: `${100 - splitRatio}%`, height: '100%', display: 'flex' }}>
+                {renderPaneContainer(1)}
+              </div>
+            </>
+          )}
         </div>
       </main>
 
@@ -633,6 +923,17 @@ export function App() {
           onCreateFolder={(folderName, parentFolderPath) => handleCreateFolderSubmit(folderName, parentFolderPath)}
         />
       )}
+
+      <QuickSearchModal 
+        isOpen={showQuickSearch}
+        onClose={() => setShowQuickSearch(false)}
+        files={mainDir.files}
+        onSelectFile={(file) => {
+          handleSelectFile(file);
+          setShowQuickSearch(false);
+        }}
+        onCreateNewNote={() => triggerOpenCreateModal()}
+      />
     </div>
   );
 }

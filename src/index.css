@@ -149,16 +149,16 @@ button, input, select, textarea {
 
 /* Redesigned Sidebar Styling */
 .sidebar {
-  width: 310px;
-  min-width: 270px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   background: var(--bg-surface);
-  border-right: 1px solid var(--border-color);
+  border-right: none;
   display: flex;
   flex-direction: column;
   height: 100%;
-  transition: width 0.3s ease;
   z-index: 10;
-  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+  box-shadow: none;
 }
 
 .sidebar-header {
@@ -1888,11 +1888,6 @@ button, input, select, textarea {
    ========================================================================== */
 
 @media (max-width: 960px) {
-  .sidebar {
-    width: 230px !important;
-    min-width: 190px !important;
-  }
-
   .dashboard-container {
     padding: 16px 20px !important;
   }
@@ -2244,6 +2239,165 @@ button, input, select, textarea {
   background: rgba(56, 139, 253, 0.35);
   color: transparent;
 }
+
+/* ── Impress.js 3D Spatial Presentation Viewport ────────────────────────── */
+.impress-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+  background: radial-gradient(circle at center, #0f172a 0%, #050811 100%);
+  user-select: none;
+}
+
+.impress-camera-space {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-style: preserve-3d;
+  transition: transform 1.2s cubic-bezier(0.86, 0, 0.07, 1);
+  will-change: transform;
+}
+
+.impress-slide-step {
+  position: absolute;
+  top: -360px;
+  left: -600px;
+  width: 1200px;
+  height: 720px;
+  transform-style: preserve-3d;
+  transition: opacity 0.8s ease, transform 1.2s cubic-bezier(0.86, 0, 0.07, 1);
+  box-sizing: border-box;
+}
+
+.impress-slide-card {
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  border: 2px solid rgba(249, 115, 22, 0.3);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(249, 115, 22, 0.15);
+  padding: 48px 60px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  color: #f8fafc;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s ease;
+}
+
+.impress-slide-step.active .impress-slide-card {
+  border-color: #f97316;
+  box-shadow: 0 25px 80px rgba(249, 115, 22, 0.35), 0 0 50px rgba(249, 115, 22, 0.25);
+  transform: scale(1.02);
+}
+
+.impress-slide-step.inactive .impress-slide-card {
+  opacity: 0.5;
+  filter: blur(1px);
+}
+
+.impress-slide-header {
+  margin-bottom: 24px;
+  border-bottom: 2px solid rgba(249, 115, 22, 0.3);
+  padding-bottom: 16px;
+}
+
+.impress-slide-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #fb923c;
+  line-height: 1.25;
+  margin: 0;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.impress-slide-body {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.impress-node-paragraph {
+  font-size: 1.15rem;
+  line-height: 1.7;
+  color: #e2e8f0;
+}
+
+.impress-node-bullet {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: #cbd5e1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-left: 8px;
+}
+
+.impress-bullet-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f97316;
+  margin-top: 10px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px #f97316;
+}
+
+.impress-slide-badge {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  background: rgba(249, 115, 22, 0.2);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.4);
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.05em;
+}
+
+.pro-splitter-bar:hover {
+  background: var(--primary-light, rgba(99, 102, 241, 0.25)) !important;
+  box-shadow: 0 0 12px var(--primary-light, rgba(99, 102, 241, 0.4));
+}
+
+/* ── Pro Markdown Source Editor Textarea ───────────────────────────────── */
+.markdown-source-textarea {
+  width: 100%;
+  height: 100%;
+  padding: 16px 20px;
+  margin: 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono, 'Fira Code', monospace);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-main, #e2e8f0);
+  background: var(--bg-main, #0f172a);
+  caret-color: var(--primary, #6366f1);
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+.sidebar-resizer-bar:hover {
+  background: var(--primary, #6366f1) !important;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+}
+
 
 
 
