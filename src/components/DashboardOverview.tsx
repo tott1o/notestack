@@ -173,16 +173,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // Color mapping helper for file types in Galaxy Brain
   const getFileTypeColors = (type: string) => {
     switch (type) {
-      case 'md': return { color: '#6366f1', glow: 'rgba(99, 102, 241, 0.85)' };
-      case 'pdf': return { color: '#f43f5e', glow: 'rgba(244, 63, 94, 0.85)' };
-      case 'pptx': return { color: '#f97316', glow: 'rgba(249, 115, 22, 0.85)' };
-      case 'code': return { color: '#10b981', glow: 'rgba(16, 185, 129, 0.85)' };
-      case 'csv': return { color: '#14b8a6', glow: 'rgba(20, 184, 166, 0.85)' };
-      case 'docx': return { color: '#06b6d4', glow: 'rgba(6, 182, 212, 0.85)' };
-      case 'image': return { color: '#f59e0b', glow: 'rgba(245, 158, 11, 0.85)' };
-      case 'video': return { color: '#ec4899', glow: 'rgba(236, 72, 153, 0.85)' };
-      case 'folder': return { color: '#8b5cf6', glow: 'rgba(139, 92, 246, 0.85)' };
-      default: return { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.7)' };
+      case 'md': return { color: '#6366f1', glow: 'rgba(99, 102, 241, 0.9)' };        // Deep indigo
+      case 'pdf': return { color: '#e11d48', glow: 'rgba(225, 29, 72, 0.9)' };        // Deep rose
+      case 'pptx': return { color: '#ea580c', glow: 'rgba(234, 88, 12, 0.9)' };       // Burnt orange
+      case 'code': return { color: '#059669', glow: 'rgba(5, 150, 105, 0.9)' };       // Deep emerald
+      case 'csv': return { color: '#0d9488', glow: 'rgba(13, 148, 136, 0.9)' };       // Deep teal
+      case 'docx': return { color: '#0284c7', glow: 'rgba(2, 132, 199, 0.9)' };       // Deep sky blue
+      case 'image': return { color: '#d97706', glow: 'rgba(217, 119, 6, 0.9)' };      // Deep amber
+      case 'video': return { color: '#db2777', glow: 'rgba(219, 39, 119, 0.9)' };     // Deep magenta
+      case 'folder': return { color: '#cd7f32', glow: 'rgba(205, 127, 50, 0.9)' };    // Warm bronze
+      default: return { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.7)' };         // Slate
     }
   };
 
@@ -201,8 +201,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       vx: 0,
       vy: 0,
       radius: 26,
-      color: '#3b82f6',
-      glowColor: 'rgba(59, 130, 246, 0.95)',
+      color: '#7dd3fc',
+      glowColor: 'rgba(125, 211, 252, 0.95)',
       orbitRadius: 0,
       orbitAngle: 0,
       orbitSpeed: 0
@@ -250,8 +250,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             vx: 0,
             vy: 0,
             radius: Math.max(10, Math.min(24, 14 + childCount * 1.5)),
-            color: depth === 1 ? '#a855f7' : '#c084fc',
-            glowColor: depth === 1 ? 'rgba(168, 85, 247, 0.7)' : 'rgba(192, 132, 252, 0.7)',
+            color: depth === 1 ? '#cd7f32' : '#d4944a',
+            glowColor: depth === 1 ? 'rgba(205, 127, 50, 0.7)' : 'rgba(212, 148, 74, 0.7)',
             parentId,
             moduleName: item.moduleName,
             orbitRadius: orbitDist,
@@ -262,7 +262,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           connList.push({
             sourceId: parentId,
             targetId: item.id,
-            color: depth === 1 ? 'rgba(168, 85, 247, 0.35)' : 'rgba(192, 132, 252, 0.35)'
+            color: depth === 1 ? 'rgba(205, 127, 50, 0.35)' : 'rgba(212, 148, 74, 0.35)'
           });
 
           if (item.children && item.children.length > 0) {
@@ -499,14 +499,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
       // 3. Draw Orbit Guide Rings for Folders
       nodes.filter(n => n.type === 'folder' && n.id !== 'root-nucleus').forEach(folder => {
-        ctx.strokeStyle = activeNeighborIds && !activeNeighborIds.has(folder.id) ? 'rgba(168, 85, 247, 0.03)' : 'rgba(168, 85, 247, 0.08)';
+        ctx.strokeStyle = activeNeighborIds && !activeNeighborIds.has(folder.id) ? 'rgba(205, 127, 50, 0.03)' : 'rgba(205, 127, 50, 0.08)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.arc(folder.x, folder.y, folder.orbitRadius || 180, 0, Math.PI * 2);
         ctx.stroke();
       });
 
-      // 4. Draw Minimalist Constellation Connections
+      // 4. Draw Constellation Connections
       connections.forEach(conn => {
         const src = nodes.find(n => n.id === conn.sourceId);
         const tgt = nodes.find(n => n.id === conn.targetId);
@@ -515,19 +515,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         const isSearchMatch = dashSearch.trim() && tgt.name.toLowerCase().includes(dashSearch.toLowerCase());
         const isNeighbor = activeNeighborIds ? (activeNeighborIds.has(src.id) && activeNeighborIds.has(tgt.id)) : false;
 
-        let strokeColor = 'rgba(255, 255, 255, 0.12)';
-        let lineWidth = 1;
+        let strokeColor = conn.color || 'rgba(129, 140, 248, 0.45)';
+        let lineWidth = 1.8;
 
         if (activeNeighborIds) {
           if (isNeighbor) {
-            strokeColor = 'rgba(129, 140, 248, 0.85)';
-            lineWidth = 2;
+            strokeColor = 'rgba(129, 140, 248, 0.95)';
+            lineWidth = 3.0;
           } else {
-            strokeColor = 'rgba(255, 255, 255, 0.03)';
+            strokeColor = 'rgba(255, 255, 255, 0.05)';
           }
         } else if (isSearchMatch) {
-          strokeColor = 'rgba(250, 204, 21, 0.85)';
-          lineWidth = 1.8;
+          strokeColor = 'rgba(250, 204, 21, 0.95)';
+          lineWidth = 2.5;
         }
 
         ctx.strokeStyle = strokeColor;
@@ -538,57 +538,135 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         ctx.stroke();
       });
 
-      // 5. Draw Minimalist Star Nodes & Magnetic Charging Ring
+      // 5. Draw Realistic Shining Stars with Crown Light Rays
       nodes.forEach(node => {
         const isSearchMatch = dashSearch.trim() && node.name.toLowerCase().includes(dashSearch.toLowerCase());
         const isHovered = hoveredNode?.id === node.id;
         const isSelected = selectedNode?.id === node.id;
 
-        // Keep 100% Full Opacity at all times (Zero Node Darkening/Dimming on Hover)
+        const baseRadius = node.radius * (isHovered || isSelected ? 1.4 : 1.0);
+        const nodeColor = isSearchMatch ? '#e6d591' : isSelected ? '#b9aac9' : node.color;
+        const nodeGlow = node.glowColor || 'rgba(129, 140, 248, 0.9)';
+
+        // Parse the glow color's RGB for reuse
+        const rgbMatch = nodeGlow.match(/[\d.]+/g) || ['129', '140', '248'];
+        const [gr, gg, gb] = rgbMatch;
+
         ctx.globalAlpha = 1.0;
 
-        // Visual Latch Charging Progress Ring (0% -> 100%)
-        if (node.latchProgress && node.latchProgress > 0 && !node.isMagnetLocked) {
-          ctx.strokeStyle = node.type === 'folder' ? '#c084fc' : '#818cf8';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius + 5, -Math.PI / 2, -Math.PI / 2 + node.latchProgress * Math.PI * 2);
-          ctx.stroke();
-        }
-
-        // Magnetically Attached Minimal Active Ring
-        if (node.isMagnetLocked) {
-          ctx.strokeStyle = '#4ade80';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius + 5, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-
-        // Clean Core Node Circle
-        ctx.fillStyle = isSearchMatch ? '#facc15' : isSelected ? '#a855f7' : node.color;
+        // --- Layer 1: Wide colored atmospheric haze ---
+        const hazeRadius = baseRadius * (isHovered || isSelected ? 6.0 : 4.5);
+        const hazeGrad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, hazeRadius);
+        hazeGrad.addColorStop(0, `rgba(${gr}, ${gg}, ${gb}, 0.35)`);
+        hazeGrad.addColorStop(0.25, `rgba(${gr}, ${gg}, ${gb}, 0.15)`);
+        hazeGrad.addColorStop(0.55, `rgba(${gr}, ${gg}, ${gb}, 0.05)`);
+        hazeGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = hazeGrad;
         ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius * (isHovered || isSelected ? 1.25 : 1.0), 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, hazeRadius, 0, Math.PI * 2);
         ctx.fill();
 
-        if (node.isFavorite) {
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 1.5;
+        // --- Layer 2: 6-Point Crown Light Rays ---
+        // Alternating long (primary) and short (secondary) rays like a real shining star crown
+        const primaryLen = baseRadius * (isHovered || isSelected ? 5.0 : 3.5);
+        const secondaryLen = primaryLen * 0.55;
+        const rayCount = 6;
+
+        ctx.save();
+        ctx.translate(node.x, node.y);
+
+        for (let r = 0; r < rayCount; r++) {
+          const isLong = r % 2 === 0; // alternate long/short
+          const len = isLong ? primaryLen : secondaryLen;
+          const width = isLong ? baseRadius * 0.18 : baseRadius * 0.12;
+          const angle = (r * Math.PI) / (rayCount / 2); // evenly spaced
+
+          ctx.save();
+          ctx.rotate(angle);
+
+          // Sharp bright core ray (white → star color → transparent)
+          const rayGrad = ctx.createLinearGradient(0, 0, len, 0);
+          rayGrad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+          rayGrad.addColorStop(0.08, `rgba(${gr}, ${gg}, ${gb}, 0.6)`);
+          rayGrad.addColorStop(0.35, `rgba(${gr}, ${gg}, ${gb}, 0.2)`);
+          rayGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+          ctx.fillStyle = rayGrad;
           ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius + 3, 0, Math.PI * 2);
+          ctx.moveTo(baseRadius * 0.4, 0);
+          ctx.lineTo(len, -0.5);
+          ctx.lineTo(len, 0.5);
+          ctx.closePath();
+          ctx.fill();
+
+          // Soft colored glow halo around each ray
+          const softGrad = ctx.createLinearGradient(0, 0, len * 0.65, 0);
+          softGrad.addColorStop(0, `rgba(${gr}, ${gg}, ${gb}, 0.3)`);
+          softGrad.addColorStop(0.5, `rgba(${gr}, ${gg}, ${gb}, 0.08)`);
+          softGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+          ctx.fillStyle = softGrad;
+          ctx.beginPath();
+          ctx.moveTo(baseRadius * 0.25, 0);
+          ctx.lineTo(len * 0.65, -width);
+          ctx.lineTo(len * 0.65, width);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.restore();
+        }
+        ctx.restore();
+
+        // --- Layer 3: Bright colored corona bloom ---
+        const coronaRadius = baseRadius * 2.2;
+        const coronaGrad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, coronaRadius);
+        coronaGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+        coronaGrad.addColorStop(0.15, `rgba(255, 255, 255, 0.55)`);
+        coronaGrad.addColorStop(0.4, `rgba(${gr}, ${gg}, ${gb}, 0.3)`);
+        coronaGrad.addColorStop(0.7, `rgba(${gr}, ${gg}, ${gb}, 0.08)`);
+        coronaGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = coronaGrad;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, coronaRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- Layer 4: Spectral core body (white-hot center fading to star color) ---
+        const coreGrad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, baseRadius);
+        coreGrad.addColorStop(0, '#ffffff');
+        coreGrad.addColorStop(0.4, nodeColor);
+        coreGrad.addColorStop(1, nodeColor);
+        ctx.fillStyle = coreGrad;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, baseRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- Layer 5: Overexposed white-hot nucleus ---
+        const nucleusGrad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, baseRadius * 0.45);
+        nucleusGrad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+        nucleusGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.7)');
+        nucleusGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = nucleusGrad;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, baseRadius * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Favorite Gold Ring
+        if (node.isFavorite) {
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, baseRadius + 5, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        // Minimalist Typography Labels (Strictly Obey showLabels Toggle)
+        // Typography Labels
         const shouldRenderLabel = showLabels || isHovered || isSelected || isSearchMatch;
         if (shouldRenderLabel) {
           ctx.font = isHovered || isSelected ? 'bold 12px Inter, sans-serif' : '11px Inter, sans-serif';
-          ctx.fillStyle = isHovered || isSelected ? '#ffffff' : isSearchMatch ? '#facc15' : 'rgba(226, 232, 240, 0.85)';
+          ctx.fillStyle = isHovered || isSelected ? '#ffffff' : isSearchMatch ? '#facc15' : 'rgba(226, 232, 240, 0.9)';
           ctx.textAlign = 'center';
-          ctx.fillText(node.name, node.x, node.y + node.radius + 14);
+          ctx.fillText(node.name, node.x, node.y + baseRadius + 16);
         }
-
-        ctx.globalAlpha = 1.0;
       });
 
       ctx.restore();
