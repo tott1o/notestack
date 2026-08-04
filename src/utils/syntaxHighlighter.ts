@@ -18,7 +18,7 @@ export function highlightCodeSyntax(code: string, lang: string = 'code'): string
   let tokenIdx = 0;
 
   const storeToken = (cls: string, val: string) => {
-    const placeholder = `___HL_TOKEN_${tokenIdx++}___`;
+    const placeholder = `\u0000TK${tokenIdx++}\u0000`;
     tokens.push({
       id: placeholder,
       html: `<span class="${cls}">${val}</span>`
@@ -92,10 +92,11 @@ export function highlightCodeSyntax(code: string, lang: string = 'code'): string
     return storeToken('hl-number', match);
   });
 
-  // 8. Restore tokens
-  tokens.forEach(t => {
-    working = working.replace(t.id, t.html);
-  });
+  // 8. Restore tokens in exact reverse order to safely handle nested placeholders
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const t = tokens[i];
+    working = working.replaceAll(t.id, t.html);
+  }
 
   return working;
 }

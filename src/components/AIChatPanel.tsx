@@ -54,6 +54,9 @@ interface AIChatPanelProps {
   activeFile: FileItem | null;
   openTabs: FileItem[];
   mainDir: MainDirectory;
+  width?: number;
+  onResizeStart?: (e: React.MouseEvent) => void;
+  onResizeReset?: () => void;
   onContentChange?: (newContent: string) => void;
   onFileContentUpdated?: (filePathOrName: string, newContent: string) => void;
   onSelectFile?: (file: FileItem) => void;
@@ -187,32 +190,12 @@ function flattenFiles(files: FileItem[]): FileItem[] {
   return result;
 }
 
-// Simple markdown-like rendering for chat messages
+import { renderMarkdownToHtml } from '../utils/markdownUtils';
+
+// Markdown rendering for chat messages
 function renderMessageContent(text: string): string {
-  let html = text
-    // Escape HTML
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  // Code blocks
-  html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_match, lang, code) => {
-    return `<pre class="ai-code-block"><code class="language-${lang || 'text'}">${code.trim()}</code></pre>`;
-  });
-
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>');
-
-  // Bold
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-  // Italic
-  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-
-  // Line breaks
-  html = html.replace(/\n/g, '<br/>');
-
-  return html;
+  if (!text) return '';
+  return renderMarkdownToHtml(text);
 }
 
 // ─────────────────────────── Component ───────────────────────────
@@ -222,6 +205,9 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   activeFile,
   openTabs,
   mainDir,
+  width,
+  onResizeStart,
+  onResizeReset,
   onContentChange,
   onFileContentUpdated,
   onSelectFile,
@@ -1079,7 +1065,30 @@ ${context}`;
 
   // ─────────────────────────── Render ───────────────────────────
   return (
-    <div className="ai-chat-panel">
+    <div className="ai-chat-panel" style={{ width: width ? `${width}px` : undefined }}>
+      {/* Resizable Width Drag Handle on Left Edge */}
+      <div
+        className="ai-resizer-bar"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          if (onResizeStart) onResizeStart(e);
+        }}
+        onDoubleClick={() => {
+          if (onResizeReset) onResizeReset();
+        }}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 6,
+          cursor: 'col-resize',
+          zIndex: 25,
+          userSelect: 'none',
+          touchAction: 'none'
+        }}
+        title="Drag horizontally to resize AI Section | Double-click to reset width (380px)"
+      />
       {/* ── Notification Toast ── */}
       {notification && (
         <div className={`ai-notification ai-notification-${notification.type}`}>
@@ -1385,7 +1394,9 @@ ${context}`;
                     <div className="copilot-diff-header-left">
                       <Sparkles size={14} className="copilot-diff-icon" />
                       <span className="copilot-diff-filename">{msg.editAction.fileName}</span>
-                      <span className="copilot-mode-badge">{msg.editAction.type}</span>
+                      <span className={`copilot-mode-badge ${msg.editAction.type}`}>
+                        {msg.editAction.type === 'create' ? 'NEW FILE' : 'EDIT'}
+                      </span>
                     </div>
 
                     {msg.editAction.applied && (
@@ -1395,19 +1406,21 @@ ${context}`;
                     )}
                   </div>
 
-                  <button
-                    className="ai-edit-apply-btn"
-                    onClick={() => handleApplyEdit(msg.id)}
-                  >
-                    <FileText size={14} />
-                    <span>
-                      {msg.editAction.applied
-                        ? `Open ${msg.editAction.fileName} in Editor`
-                        : msg.editAction.type === 'create'
-                        ? `Create & Open ${msg.editAction.fileName}`
-                        : `Save & Open ${msg.editAction.fileName}`}
-                    </span>
-                  </button>
+                  <div className="copilot-diff-action-body">
+                    <button
+                      className={`ai-edit-apply-btn ${msg.editAction.applied ? 'applied' : ''}`}
+                      onClick={() => handleApplyEdit(msg.id)}
+                    >
+                      {msg.editAction.applied ? <FileCheck size={14} /> : <FileText size={14} />}
+                      <span>
+                        {msg.editAction.applied
+                          ? `Open ${msg.editAction.fileName} in Editor`
+                          : msg.editAction.type === 'create'
+                          ? `Create & Open ${msg.editAction.fileName}`
+                          : `Save & Open ${msg.editAction.fileName}`}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
 

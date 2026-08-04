@@ -212,19 +212,86 @@ export function applyBionicReading(htmlText: string): string {
   }
 }
 
+// ─── Web Copy-Paste Artifact Sanitizer ──────────────────────────────────────
+// Cleans up broken multi-line DOM text nodes & duplicated KaTeX/MathJax copy-paste tokens
+export function sanitizeWebCopyArtifacts(rawText: string): string {
+  if (!rawText) return rawText;
+
+  let text = rawText;
+
+  // 1. Fix duplicated arrow artifacts: "→\n →" or "→ →" -> "→"
+  text = text.replace(/→\s*\r?\n?\s*→/g, '→');
+
+  // 2. Fix token + arrow duplicates: "75\n →\n 75→" -> "75 →"
+  text = text.replace(/(\w+)\s*\r?\n?\s*([→⇒=><+-])\s*\r?\n?\s*\1\2/g, '$1 $2');
+
+  // 3. Fix multi-line math token duplicates:
+  // e.g. "35\n <\n 75\n 35<75"  OR  "n\n =\n 6\n n=6"  OR  "i\n =\n 1\n i=1"
+  // Match 2 to 6 lines of single tokens/operators followed by their exact concatenation
+  const blockRegex = /((?:^[ \t]*[\w<=>+\-*/()]+\r?\n)+)([ \t]*[\w<=>+\-*/()]{2,})/gm;
+
+  text = text.replace(blockRegex, (match, multiLines, condensed) => {
+    const tokens = multiLines.split(/\r?\n/).map((s: string) => s.trim()).filter(Boolean);
+    const joined = tokens.join('');
+    const cleanCondensed = condensed.trim();
+
+    if (joined === cleanCondensed || joined.replace(/\s+/g, '') === cleanCondensed.replace(/\s+/g, '')) {
+      if (/[<=>]/.test(cleanCondensed)) {
+        return `$${cleanCondensed}$`;
+      }
+      return cleanCondensed;
+    }
+    return match;
+  });
+
+  // 4. Clean up inline parentheses with line breaks around math expressions:
+  // e.g. "(\n n=6\n )" or "(\n $n=6$\n )" -> "($n=6$)"
+  text = text.replace(/\(\s*\r?\n\s*(\$?[^()\r\n]+\$?)\s*\r?\n\s*\)/g, '($1)');
+  text = text.replace(/\(\s*\r?\n\s*(\$?[^()\r\n]+\$?)\s*\r?\n\s*,/g, '($1,');
+
+  // 5. Fix isolated lines containing just "<", ">", "=", "→" between numbers/variables
+  // e.g. "35\n <\n 75" -> "$35 < 75$"
+  text = text.replace(/(\d+|\w+)\s*\r?\n+\s*([<=>])\s*\r?\n+\s*(\d+|\w+)/g, '$$1 $2 $3$');
+
+  // 6. Clean up trailing "75→" or similar attached arrows
+  text = text.replace(/(\d+|\w+)→/g, '$1 →');
+
+  // 7. Normalize excessive blank lines left over from artifact removal
+  text = text.replace(/\n{3,}/g, '\n\n');
+
+  return text;
+}
+
 // ─── Main Render Pipeline ────────────────────────────────────────────────────
 export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean = false): string {
   if (!markdownText) return '<p class="md-empty-note">Empty note. Type something or click Edit to start taking notes...</p>';
 
-  let processed = markdownText;
+  let processed = sanitizeWebCopyArtifacts(markdownText);
 
-  // Process ==highlighted text== → <mark class="study-highlight">
+  // 1. Protect Fenced Code Blocks (``` ... ```) and Inline Code (` ... `)
+  const codePlaceholders: string[] = [];
+  
+  // Protect Fenced Code Blocks
+  processed = processed.replace(/(```[\s\S]*?```)/g, (match) => {
+    const idx = codePlaceholders.length;
+    codePlaceholders.push(match);
+    return `\u0000CODEBLOCK${idx}\u0000`;
+  });
+
+  // Protect Inline Code
+  processed = processed.replace(/(`[^`\n]+?`)/g, (match) => {
+    const idx = codePlaceholders.length;
+    codePlaceholders.push(match);
+    return `\u0000CODEBLOCK${idx}\u0000`;
+  });
+
+  // 2. Process ==highlighted text== → <mark class="study-highlight">
   processed = processed.replace(/==([^=\n]+?)==/g, '<mark class="study-highlight">$1</mark>');
 
   const mathBlocks: string[] = [];
   const mathInlines: string[] = [];
 
-  // Extract Display Math $$ ... $$ → Placeholder Token
+  // 3. Extract Display Math $$ ... $$ → Placeholder Token
   processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
     const index = mathBlocks.length;
     try {
@@ -250,12 +317,16 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     return `\n\nNOTESTACKMATHBLOCK${index}END\n\n`;
   });
 
-  // Extract Inline Math $ ... $ → Placeholder Token
-  processed = processed.replace(/(^|[^\\\$])\$([^\s\$](?:[^\$]*?[^\s\$])?)\$/g, (match, prefix, math) => {
-    // Skip single currency values (e.g. $5 or $10.99)
-    if (/^\d+(\.\d+)?$/.test(math)) {
-      return match;
-    }
+  // 4. Protect standalone currency values (e.g. $50,000 or $10.99 followed by space/punctuation without closing $)
+  const currencyPlaceholders: string[] = [];
+  processed = processed.replace(/(^|[\s(])\$(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+)(?=$|[\s.,!?;:)]|\s)/g, (_match, prefix, amount) => {
+    const idx = currencyPlaceholders.length;
+    currencyPlaceholders.push(`$${amount}`);
+    return `${prefix}\u0000CURRENCY${idx}\u0000`;
+  });
+
+  // 5. Extract Inline Math $ ... $ (including numbers like $35$, $75$, equations $n=6$, and symbols \to)
+  processed = processed.replace(/(^|[^\\\$])\$([^\s\$\n](?:[^\$\n]*?[^\s\$\n])?)\$/g, (_match, prefix, math) => {
     const index = mathInlines.length;
     try {
       const rendered = katex.renderToString(math.trim(), { displayMode: false, throwOnError: false });
@@ -266,6 +337,16 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     return `${prefix}NOTESTACKMATHINLINE${index}END`;
   });
 
+  // Restore Currency Placeholders
+  processed = processed.replace(/\u0000CURRENCY(\d+)\u0000/g, (_, id) => {
+    return currencyPlaceholders[parseInt(id, 10)] || '';
+  });
+
+  // 5. Restore Protected Code Blocks before Marked parses Markdown
+  processed = processed.replace(/\u0000CODEBLOCK(\d+)\u0000/g, (_, id) => {
+    return codePlaceholders[parseInt(id, 10)] || '';
+  });
+
   let rawHtml = '';
   try {
     rawHtml = marked.parse(processed) as string;
@@ -274,13 +355,13 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     rawHtml = `<pre>${processed}</pre>`;
   }
 
-  // Restore Display Math Blocks
+  // 6. Restore Display Math Blocks
   rawHtml = rawHtml.replace(/<p>\s*NOTESTACKMATHBLOCK(\d+)END\s*<\/p>|NOTESTACKMATHBLOCK(\d+)END/g, (_, id1, id2) => {
     const idx = parseInt(id1 !== undefined ? id1 : id2, 10);
     return mathBlocks[idx] || '';
   });
 
-  // Restore Inline Math
+  // 7. Restore Inline Math
   rawHtml = rawHtml.replace(/NOTESTACKMATHINLINE(\d+)END/g, (_, id) => {
     const idx = parseInt(id, 10);
     return mathInlines[idx] || '';

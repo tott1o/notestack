@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { PointerEvent } from 'react';
 import { 
   FileText, 
@@ -66,11 +66,14 @@ export const TabBar: React.FC<TabBarProps> = ({
     }
   };
 
-  const handlePointerDown = (e: PointerEvent<HTMLDivElement>, idx: number) => {
+  const handlePointerDown = (e: PointerEvent<HTMLDivElement>, idx: number, file: FileItem) => {
     // Only capture primary mouse button clicks
     if (e.button !== 0) return;
     // Don't capture pointer if close button was clicked
     if ((e.target as HTMLElement).closest('.tab-close-btn')) return;
+
+    // Instant 0ms Tab Selection on Mouse Down
+    onSelectTab(file);
 
     const target = e.currentTarget as HTMLElement;
     try {
@@ -120,6 +123,13 @@ export const TabBar: React.FC<TabBarProps> = ({
   };
 
   const activeTabKey = activeFile ? (activeFile.tabId || activeFile.id) : null;
+  const activeTabRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeTabRef.current) {
+      activeTabRef.current.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+    }
+  }, [activeTabKey]);
 
   return (
     <div className="browser-tab-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -155,7 +165,8 @@ export const TabBar: React.FC<TabBarProps> = ({
           return (
             <div
               key={tabKey}
-              onPointerDown={(e) => handlePointerDown(e, idx)}
+              ref={isActive ? activeTabRef : null}
+              onPointerDown={(e) => handlePointerDown(e, idx, file)}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
@@ -168,14 +179,15 @@ export const TabBar: React.FC<TabBarProps> = ({
               title={`Drag horizontally to reorder: ${file.name}`}
               style={{ 
                 cursor: 'pointer',
-                transform: `translateX(${translateX}px)`,
-                transition: (draggingIdx === null || isDragging)
-                  ? 'none' 
-                  : 'transform 0.18s cubic-bezier(0.2, 0, 0, 1), background 0.18s ease',
+                transform: translateX ? `translateX(${translateX}px)` : undefined,
+                transition: isDragging
+                  ? 'none'
+                  : draggingIdx !== null
+                  ? 'transform 0.12s ease'
+                  : undefined,
                 zIndex: isDragging ? 100 : 1,
-                boxShadow: isDragging ? '0 6px 20px rgba(0,0,0,0.45)' : undefined,
+                boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.4)' : undefined,
                 background: isDragging ? 'var(--bg-surface-elevated)' : undefined,
-                borderTopColor: isDragging ? 'var(--primary)' : undefined,
                 userSelect: 'none',
                 touchAction: 'none'
               }}

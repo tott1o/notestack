@@ -66,6 +66,21 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(260);
   const isDraggingSidebarResizer = useRef<boolean>(false);
 
+  // AI Panel Resizing State
+  const [aiPanelWidth, setAiPanelWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('notestack_ai_panel_width');
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= 260 && parsed <= 900) return parsed;
+    }
+    return 380;
+  });
+  const isDraggingAiPanelResizer = useRef<boolean>(false);
+
+  useEffect(() => {
+    localStorage.setItem('notestack_ai_panel_width', aiPanelWidth.toString());
+  }, [aiPanelWidth]);
+
   // Dual Split Screen Layout State (1 or 2 Panes)
   const [splitCount, setSplitCount] = useState<SplitLayoutMode>(1);
   const [splitRatio, setSplitRatio] = useState<number>(50); // % ratio for dual panes
@@ -407,12 +422,16 @@ export function App() {
     }
   }, [openTabs.length, splitCount]);
 
-  // Drag Resizing for Sidebar and Dual Split Screen
+  // Drag Resizing for Sidebar, AI Section, and Dual Split Screen
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingSidebarResizer.current) {
         const newWidth = Math.max(160, Math.min(500, e.clientX));
         setSidebarWidth(newWidth);
+      }
+      if (isDraggingAiPanelResizer.current) {
+        const newWidth = Math.max(260, Math.min(900, window.innerWidth - e.clientX));
+        setAiPanelWidth(newWidth);
       }
       if (isDraggingSplitter.current) {
         const currentSidebarW = isSidebarVisible ? sidebarWidth : 0;
@@ -428,6 +447,7 @@ export function App() {
 
     const handleMouseUp = () => {
       isDraggingSidebarResizer.current = false;
+      isDraggingAiPanelResizer.current = false;
       isDraggingSplitter.current = false;
       document.body.style.cursor = 'default';
     };
@@ -1360,6 +1380,12 @@ export function App() {
         activeFile={activeFile}
         openTabs={openTabs}
         mainDir={mainDir}
+        width={aiPanelWidth}
+        onResizeStart={() => {
+          isDraggingAiPanelResizer.current = true;
+          document.body.style.cursor = 'col-resize';
+        }}
+        onResizeReset={() => setAiPanelWidth(380)}
         onContentChange={handleContentChange}
         onFileContentUpdated={handleFileContentUpdated}
         onSelectFile={handleSelectFile}

@@ -979,7 +979,7 @@ button, input, select, textarea {
   flex: 1;
   overflow-y: auto;
   background: var(--bg-main);
-  padding: 36px 40px 100px;
+  padding: 36px 40px 160px;
   display: flex;
   justify-content: center;
 }
@@ -1037,6 +1037,7 @@ button, input, select, textarea {
   font-family: var(--font-body);
   line-height: 1.8;
   word-wrap: break-word;
+  padding-bottom: 80px;
 }
 
 .rendered-markdown p {
@@ -1303,6 +1304,7 @@ button, input, select, textarea {
 .code-terminal-body {
   display: flex;
   overflow-x: auto;
+  align-items: stretch;
 }
 .code-terminal-gutter {
   display: flex;
@@ -1318,20 +1320,29 @@ button, input, select, textarea {
   display: block;
   text-align: right;
   padding: 0 12px;
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-family: var(--font-mono), 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.85rem;
   line-height: 1.65;
+  height: 1.65em;
   color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
 }
 .code-terminal-pre {
   margin: 0;
   padding: 14px 18px;
   overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: 0.86rem;
+  font-family: var(--font-mono), 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.85rem;
   line-height: 1.65;
   color: var(--text-main);
   flex: 1;
+  white-space: pre;
+}
+.code-terminal-pre code {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 .copy-code-btn {
   background: var(--bg-surface);
@@ -1587,30 +1598,22 @@ button, input, select, textarea {
   overflow: hidden;
 }
 .code-editor-line-numbers {
-  padding: 16px 8px 16px 16px;
+  padding: 20px 10px 160px 16px;
   background: #0d1117;
   color: #484f58;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, 'Fira Code', 'JetBrains Mono', 'Consolas', monospace);
   font-size: 14px;
   line-height: 1.6;
   text-align: right;
   user-select: none;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
 }
-.code-editor-textarea {
-  flex: 1;
-  background: transparent;
-  color: #e6edf3;
-  font-family: var(--font-mono);
-  font-size: 14px;
+.code-editor-line-numbers div {
+  height: 1.6em;
   line-height: 1.6;
-  padding: 16px 20px;
-  border: none;
-  outline: none;
-  resize: none;
-  white-space: pre;
-  overflow: auto;
-  tab-size: 2;
+  box-sizing: border-box;
 }
 
 /* --- CSV / Data Table Viewer --- */
@@ -2083,6 +2086,17 @@ button, input, select, textarea {
   display: none;
 }
 
+@keyframes tabMount {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 .app-tab {
   display: flex;
   align-items: center;
@@ -2099,8 +2113,8 @@ button, input, select, textarea {
   cursor: pointer;
   white-space: nowrap;
   max-width: 180px;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   position: relative;
+  transition: background 0.1s ease, color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .app-tab:hover {
@@ -2113,23 +2127,22 @@ button, input, select, textarea {
   color: var(--text-main);
   font-weight: 700;
   border-color: var(--border-color);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.app-tab.active::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .app-tab .tab-icon {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  transition: transform 0.1s ease;
+}
+
+.app-tab:hover .tab-icon {
+  transform: scale(1.08);
+}
+
+.app-tab.active .tab-icon {
+  transform: scale(1.12);
 }
 
 .app-tab .tab-title {
@@ -2216,10 +2229,10 @@ button, input, select, textarea {
   left: 0;
   width: 100%;
   height: 100%;
-  padding: 24px;
+  padding: 20px 24px;
   margin: 0;
   box-sizing: border-box;
-  font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Fira Code', 'JetBrains Mono', 'Consolas', monospace);
   line-height: 1.6;
   tab-size: 2;
   word-wrap: normal;
@@ -2386,7 +2399,7 @@ button, input, select, textarea {
 .markdown-source-textarea {
   width: 100%;
   height: 100%;
-  padding: 16px 20px;
+  padding: 16px 20px 160px 20px;
   margin: 0;
   box-sizing: border-box;
   font-family: var(--font-mono, 'Fira Code', monospace);
@@ -2417,6 +2430,8 @@ button, input, select, textarea {
 .ai-chat-panel {
   position: relative;
   width: 380px;
+  max-width: 90vw;
+  min-width: 260px;
   height: 100%;
   flex-shrink: 0;
   display: flex;
@@ -2424,19 +2439,17 @@ button, input, select, textarea {
   background: var(--bg-surface, #0f172a);
   border-left: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
   z-index: 10;
-  animation: aiPanelSlideIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: var(--font-body, 'Inter', sans-serif);
 }
 
-@keyframes aiPanelSlideIn {
-  from {
-    width: 0;
-    opacity: 0;
-  }
-  to {
-    width: 380px;
-    opacity: 1;
-  }
+.ai-resizer-bar {
+  background: transparent;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ai-resizer-bar:hover {
+  background: var(--primary, #6366f1) !important;
+  box-shadow: 0 0 10px var(--primary, #6366f1);
 }
 
 /* ── Header ── */
@@ -3105,22 +3118,29 @@ button, input, select, textarea {
 }
 
 .ai-msg-action-btn {
-  width: 24px;
+  min-width: 24px;
+  width: auto;
   height: 24px;
+  padding: 0 7px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
   color: #9ca3af;
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
   transition: all 0.15s ease;
 }
 
 .ai-msg-action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f3f4f6;
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #e9d5ff;
 }
 
 /* ── Edit Action Block ── */
@@ -3641,53 +3661,117 @@ button, input, select, textarea {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .copilot-diff-card {
-  margin-top: 10px;
+  margin-top: 12px;
   border-radius: 10px;
-  background: rgba(10, 14, 26, 0.85);
-  border: 1px solid rgba(168, 85, 247, 0.2);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(168, 85, 247, 0.25);
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  transition: all 0.2s ease;
 }
 
 .copilot-diff-card.applied {
-  border-color: rgba(16, 185, 129, 0.3);
-  background: rgba(6, 24, 18, 0.6);
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(6, 24, 18, 0.75);
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.1);
 }
 
 .copilot-diff-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(0, 0, 0, 0.25);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-wrap: nowrap;
 }
 
 .copilot-diff-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
 }
 
 .copilot-diff-icon {
   color: #c084fc;
+  flex-shrink: 0;
+}
+
+.copilot-diff-card.applied .copilot-diff-icon {
+  color: #34d399;
 }
 
 .copilot-diff-filename {
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  color: #f3f4f6;
+  color: #f8fafc;
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .copilot-mode-badge {
-  font-size: 0.6rem;
-  font-weight: 700;
+  font-size: 0.58rem;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 1px 5px;
   border-radius: 4px;
   background: rgba(168, 85, 247, 0.15);
   color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.copilot-mode-badge.create {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+.copilot-diff-action-body {
+  padding: 10px 12px;
+}
+
+.ai-edit-apply-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #a855f7, #7c3aed);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.3);
+}
+
+.ai-edit-apply-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(168, 85, 247, 0.45);
+}
+
+.ai-edit-apply-btn.applied {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.25));
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.15);
+}
+
+.ai-edit-apply-btn.applied:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.4), rgba(5, 150, 105, 0.4));
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
 }
 
 .copilot-diff-stats {

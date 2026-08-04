@@ -337,14 +337,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
     let animationFrameId: number;
 
-    const starDust = Array.from({ length: 160 }, () => ({
-      x: (Math.random() - 0.5) * 3200,
-      y: (Math.random() - 0.5) * 3200,
-      size: Math.random() * 1.8 + 0.3,
-      alpha: Math.random() * 0.6 + 0.2,
-      twinkleSpeed: Math.random() * 0.02 + 0.005
-    }));
-
     const render = () => {
       const parent = canvas.parentElement;
       if (parent) {
@@ -372,15 +364,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
       ctx.translate(centerX, centerY);
       ctx.scale(zoomScale, zoomScale);
-
-      // 1. Render Subtle Star Dust
-      starDust.forEach(star => {
-        star.alpha += Math.sin(Date.now() * star.twinkleSpeed) * 0.006;
-        ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.08, Math.min(0.65, star.alpha))})`;
-        ctx.beginPath();
-        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-        ctx.fill();
-      });
 
       // 2. Timed Magnetic Latch Physics (2s File Nodes, 3s Folder Nodes) & Multi-Trigger Detachment
       let closestNode: GalaxyNode | null = null;
