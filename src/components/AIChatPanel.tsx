@@ -228,7 +228,21 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [apiKeyError, setApiKeyError] = useState('');
   const [notification, setNotification] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileItem[]>([]);
+  const [excludeAutoContext, setExcludeAutoContext] = useState<boolean>(false);
+  const [autoAttachActiveFile, setAutoAttachActiveFile] = useState<boolean>(() => {
+    try {
+      const val = localStorage.getItem('notestack_ai_auto_context_v1');
+      return val !== null ? val === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
   const [showFilePicker, setShowFilePicker] = useState(false);
+
+  // Reset auto-context exclusion when active file changes
+  useEffect(() => {
+    setExcludeAutoContext(false);
+  }, [activeFile?.id]);
   const [filePickerQuery, setFilePickerQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState(() => {
@@ -337,8 +351,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       return parts;
     };
 
-    // Active file context (auto-attached)
-    if (activeFile && activeFile.type !== 'folder') {
+    // Active file context (auto-attached unless dismissed or toggled off)
+    if (activeFile && activeFile.type !== 'folder' && autoAttachActiveFile && !excludeAutoContext) {
       const text = await getFileTextContentForAI(activeFile);
       if (text) {
         const displayPath = activeFile.path ? activeFile.path.replace(/^\//, '').replace(/\//g, ' / ') : activeFile.name;
@@ -1292,44 +1306,42 @@ ${context}`;
               ))}
             </select>
           </div>
+
+          {/* ── Auto Context Toggle ── */}
+          <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              <FileText size={14} style={{ color: 'var(--primary)' }} />
+              <span>Auto-attach open note to context</span>
+            </div>
+            <label className="toggle-switch" style={{ position: 'relative', display: 'inline-block', width: 34, height: 18, margin: 0, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={autoAttachActiveFile}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setAutoAttachActiveFile(val);
+                  try { localStorage.setItem('notestack_ai_auto_context_v1', String(val)); } catch {}
+                }}
+                style={{ opacity: 0, width: 0, height: 0 }}
+              />
+              <span 
+                style={{
+                  position: 'absolute', inset: 0,
+                  backgroundColor: autoAttachActiveFile ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                  borderRadius: 20, transition: '0.2s'
+                }}
+              >
+                <span 
+                  style={{
+                    position: 'absolute', height: 14, width: 14, left: autoAttachActiveFile ? 17 : 2, bottom: 2,
+                    backgroundColor: 'white', borderRadius: '50%', transition: '0.2s'
+                  }} 
+                />
+              </span>
+            </label>
+          </div>
         </div>
       )}
-
-      {/* ── Context Bar: Shows currently attached files ── */}
-      <div className="ai-context-bar">
-        <div className="ai-context-label">
-          <Paperclip size={12} />
-          <span>Context</span>
-        </div>
-        <div className="ai-context-files">
-          {activeFile && (
-            <div className="ai-context-chip ai-context-auto" title={`Auto-attached: ${activeFile.name}`}>
-              <FileText size={11} />
-              <span>{activeFile.name}</span>
-              <span className="ai-context-auto-badge">auto</span>
-            </div>
-          )}
-          {attachedFiles.filter(f => f.id !== activeFile?.id).map(f => (
-            <div key={f.id} className="ai-context-chip" title={f.fullPath || f.path}>
-              <FileText size={11} />
-              <span>{f.name}</span>
-              <button
-                className="ai-context-remove"
-                onClick={() => handleToggleFileAttach(f)}
-              >
-                <X size={10} />
-              </button>
-            </div>
-          ))}
-          <button
-            className="ai-context-add-btn"
-            onClick={() => setShowFilePicker(!showFilePicker)}
-            title="Add file to context"
-          >
-            <Plus size={12} />
-          </button>
-        </div>
-      </div>
 
       {/* ── Messages Area ── */}
       <div className="ai-chat-messages" ref={chatContainerRef}>
@@ -1505,9 +1517,9 @@ ${context}`;
             />
             <div className="ai-file-picker-list">
               {filteredPickerFiles.map(f => {
-                const isAttached = attachedFiles.some(af => af.id === f.id) || f.id === activeFile?.id;
                 const fKey = f.fullPath || f.path || f.id;
                 const isActiveFile = activeFile && (activeFile.fullPath || activeFile.path || activeFile.id) === fKey;
+                const isAttached = attachedFiles.some(af => af.id === f.id) || (isActiveFile && autoAttachActiveFile && !excludeAutoContext);
                 const isOpenTab = openTabs.some(t => (t.fullPath || t.path || t.id) === fKey);
                 const displayPath = f.path ? f.path.replace(/^\//, '').replace(/\//g, ' / ') : (f.moduleName || '');
 
@@ -1516,7 +1528,15 @@ ${context}`;
                     key={f.id}
                     className={`ai-file-picker-item ${isAttached ? 'attached' : ''}`}
                     onClick={() => {
-                      if (f.id !== activeFile?.id) {
+                      if (isActiveFile) {
+                        if (excludeAutoContext || !autoAttachActiveFile) {
+                          setExcludeAutoContext(false);
+                          setAutoAttachActiveFile(true);
+                          try { localStorage.setItem('notestack_ai_auto_context_v1', 'true'); } catch {}
+                        } else {
+                          setExcludeAutoContext(true);
+                        }
+                      } else {
                         if (f.type === 'folder') {
                           handleToggleFileAttach(f);
                         } else if (window.electronAPI?.readFileText && f.fullPath && !f.content) {
@@ -1564,14 +1584,21 @@ ${context}`;
             <span>Context</span>
           </div>
           <div className="ai-context-files">
-            {activeFile && (
+            {activeFile && autoAttachActiveFile && !excludeAutoContext && (
               <div className="ai-context-chip ai-context-auto" title={`Auto-attached: ${activeFile.name}`}>
                 <FileText size={11} />
                 <span>{activeFile.name}</span>
                 <span className="ai-context-auto-badge">auto</span>
+                <button
+                  className="ai-context-remove"
+                  onClick={() => setExcludeAutoContext(true)}
+                  title="Remove active file from AI context"
+                >
+                  <X size={10} />
+                </button>
               </div>
             )}
-            {attachedFiles.filter(f => f.id !== activeFile?.id).map(f => (
+            {attachedFiles.filter(f => f.id !== activeFile?.id || excludeAutoContext).map(f => (
               <div key={f.id} className="ai-context-chip" title={f.fullPath || f.path}>
                 <FileText size={11} />
                 <span>{f.name}</span>
@@ -1636,7 +1663,7 @@ ${context}`;
         </div>
         <div className="ai-input-hint">
           <span>{isLoading ? 'Click Stop button or press Esc to cancel' : 'Enter to send • Shift+Enter for new line'}</span>
-          {activeFile && <span className="ai-input-context-hint">Context: {activeFile.name}</span>}
+          {activeFile && autoAttachActiveFile && !excludeAutoContext && <span className="ai-input-context-hint">Context: {activeFile.name}</span>}
         </div>
       </div>
     </div>

@@ -564,7 +564,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* 5. Hierarchical Folder Tree */}
-      <div className="file-tree-container" style={{ flex: 1, overflowY: 'auto', padding: '8px 12px 220px 12px' }}>
+      <div className="file-tree-container" style={{ flex: 1, overflowY: 'auto', padding: '12px 14px 40px 14px' }}>
         {sortedRootFiles.length > 0 ? (
           sortedRootFiles.map(item => renderFileRow(item, 0))
         ) : (
@@ -572,6 +572,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             No items found. Click + New File to create notes or program code files.
           </div>
         )}
+      </div>
+
+      {/* 6. Bottom Vault Footer Ribbon */}
+      <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.85, fontWeight: 600 }}>
+          <Folder size={12} style={{ color: 'var(--primary)' }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{mainDir.name || 'Vault'}</span>
+        </span>
+        <span style={{ fontWeight: 700, color: 'var(--text-dim)' }}>{counts.total} items</span>
       </div>
 
       {/* 6. Context Menu */}

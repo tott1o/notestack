@@ -7,6 +7,7 @@ import { PdfViewer } from './components/PdfViewer';
 import { DocxViewer } from './components/DocxViewer';
 import { PptxViewer } from './components/PptxViewer';
 import { ImageViewer } from './components/ImageViewer';
+import { SvgViewer } from './components/SvgViewer';
 import { VideoViewer } from './components/VideoViewer';
 import { CodeEditor } from './components/CodeEditor';
 import { CsvViewer } from './components/CsvViewer';
@@ -1002,6 +1003,9 @@ export function App() {
           />
         );
       case 'image':
+        if (file.extension?.toLowerCase() === 'svg' || file.name.toLowerCase().endsWith('.svg')) {
+          return <SvgViewer file={file} />;
+        }
         return <ImageViewer file={file} />;
       case 'video':
         return (
@@ -1197,30 +1201,35 @@ export function App() {
   return (
     <div className="app-container">
       {isSidebarVisible && viewMode !== 'focus' && (
-        <>
-          <div style={{ width: `${sidebarWidth}px`, height: '100%', flexShrink: 0, overflow: 'hidden' }}>
-            <Sidebar 
-              mainDir={mainDir}
-              activeFile={activeFile}
-              onSelectFile={handleSelectFile}
-              onSelectMainDirectory={handleSelectMainDirectory}
-              onRemoveVault={handleRemoveVault}
-              onCreateNewNote={triggerOpenCreateModal}
-              onCreateNewFolder={triggerOpenCreateFolderModal}
-              onCopyItem={handleCopyFile}
-              onMoveItem={handleMoveFile}
-              onToggleFavorite={handleToggleFavorite}
-              onDeleteItem={handleDeleteItem}
-              onRenameItem={handleRenameItem}
-              onOpenInNewTab={handleOpenInNewTab}
-              selectedFilter={selectedFilter}
-              setSelectedFilter={setSelectedFilter}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-            />
-          </div>
-
-          {/* Sidebar Resizer Handle */}
+        <div 
+          style={{ 
+            width: `${sidebarWidth}px`, 
+            height: '100%', 
+            position: 'relative',
+            flexShrink: 0,
+            borderRight: '1px solid var(--border-color)'
+          }}
+        >
+          <Sidebar 
+            mainDir={mainDir}
+            activeFile={activeFile}
+            onSelectFile={handleSelectFile}
+            onSelectMainDirectory={handleSelectMainDirectory}
+            onRemoveVault={handleRemoveVault}
+            onCreateNewNote={triggerOpenCreateModal}
+            onCreateNewFolder={triggerOpenCreateFolderModal}
+            onCopyItem={handleCopyFile}
+            onMoveItem={handleMoveFile}
+            onToggleFavorite={handleToggleFavorite}
+            onDeleteItem={handleDeleteItem}
+            onRenameItem={handleRenameItem}
+            onOpenInNewTab={handleOpenInNewTab}
+            selectedFilter={selectedFilter}
+            setSelectedFilter={setSelectedFilter}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+          />
+          {/* Overlay Sidebar Resizer Handle (0px layout width, zero gap) */}
           <div
             className="sidebar-resizer-bar"
             onMouseDown={(e) => {
@@ -1230,20 +1239,18 @@ export function App() {
             }}
             onDoubleClick={() => setSidebarWidth(260)}
             style={{
+              position: 'absolute',
+              right: -3,
+              top: 0,
+              bottom: 0,
               width: 6,
-              height: '100%',
               cursor: 'col-resize',
-              background: 'var(--bg-surface-elevated, #1e293b)',
-              borderLeft: '1px solid var(--border-color)',
-              borderRight: '1px solid var(--border-color)',
-              zIndex: 15,
-              userSelect: 'none',
-              flexShrink: 0,
-              transition: 'background 0.15s ease'
+              zIndex: 20,
+              userSelect: 'none'
             }}
             title="Drag to resize sidebar width | Double-click to reset 260px"
           />
-        </>
+        </div>
       )}
 
       <main className="main-canvas">

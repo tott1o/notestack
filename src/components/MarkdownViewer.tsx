@@ -851,7 +851,8 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
               {/* Rendered HTML Container */}
               <div 
-                className="rendered-markdown" 
+                className="rendered-markdown rendered-markdown-content"
+                style={{ fontSize: `${fontSize}px` }}
                 dangerouslySetInnerHTML={{ __html: renderedHtml }} 
               />
             </div>

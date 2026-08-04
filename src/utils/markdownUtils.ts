@@ -45,7 +45,12 @@ renderer.code = function({ text = '', lang }: { text?: string; lang?: string }) 
 
 renderer.heading = function({ text = '', depth }: { text?: string; depth: number }) {
   const safeText = text || 'heading';
-  const cleanText = safeText.replace(/<[^>]*>/g, '');
+  const cleanText = safeText
+    .replace(/NOTESTACKMATHINLINE\d+END/g, '')
+    .replace(/NOTESTACKMATHBLOCK\d+END/g, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/[*_~`=]/g, '')
+    .trim();
   const slug = cleanText.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '');
   const headingId = `heading-${slug}`;
 
@@ -251,7 +256,7 @@ export function sanitizeWebCopyArtifacts(rawText: string): string {
 
   // 5. Fix isolated lines containing just "<", ">", "=", "→" between numbers/variables
   // e.g. "35\n <\n 75" -> "$35 < 75$"
-  text = text.replace(/(\d+|\w+)\s*\r?\n+\s*([<=>])\s*\r?\n+\s*(\d+|\w+)/g, '$$1 $2 $3$');
+  text = text.replace(/(\d+|\w+)\s*\r?\n+\s*([<=>])\s*\r?\n+\s*(\d+|\w+)/g, (_match, p1, p2, p3) => '$' + p1 + ' ' + p2 + ' ' + p3 + '$');
 
   // 6. Clean up trailing "75→" or similar attached arrows
   text = text.replace(/(\d+|\w+)→/g, '$1 →');
@@ -314,7 +319,7 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     } catch (e) {
       mathBlocks.push(`<pre class="katex-error">${math}</pre>`);
     }
-    return `\n\nNOTESTACKMATHBLOCK${index}END\n\n`;
+    return `\nNOTESTACKMATHBLOCK${index}END\n`;
   });
 
   // 4. Protect standalone currency values (e.g. $50,000 or $10.99 followed by space/punctuation without closing $)
@@ -469,9 +474,16 @@ export function extractTableOfContents(markdownText: string): TableOfContentsIte
     const match = line.match(/^(#{1,6})\s+(.+)$/);
     if (match) {
       const level = match[1].length;
-      const text = match[2].trim().replace(/[*_~`=]/g, '');
-      const id = `heading-${text.toLowerCase().replace(/[^\w]+/g, '-')}`;
-      toc.push({ id, text, level });
+      const rawTitle = match[2].trim();
+      const cleanLineText = rawTitle
+        .replace(/\$\$[\s\S]*?\$\$/g, '')
+        .replace(/\$([^\$\n]+)\$/g, '')
+        .replace(/[*_~`=]/g, '')
+        .trim();
+
+      const slug = cleanLineText.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '');
+      const id = `heading-${slug}`;
+      toc.push({ id, text: cleanLineText, level });
     }
   });
 
