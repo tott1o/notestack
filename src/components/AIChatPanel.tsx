@@ -30,6 +30,77 @@ import {
 import type { FileItem, MainDirectory } from '../types';
 import { getFileTextContentForAI } from '../utils/fileContentExtractor';
 
+// ── Targeted Line / Search-Replace Edit Engine ────────────────────────────────
+export function applySearchReplaceBlocks(originalContent: string, searchReplaceText: string): string {
+  if (!originalContent || !searchReplaceText) return originalContent;
+
+  // Regex to extract <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE blocks
+  const blockRegex = /<<<<<<<\s*SEARCH\s*\n([\s\S]*?)\n?=======\s*\n([\s\S]*?)\n?>>>>>>>\s*REPLACE/g;
+  let matches = Array.from(searchReplaceText.matchAll(blockRegex));
+
+  if (matches.length === 0) {
+    const altRegex = /<<<\s*SEARCH\s*\n([\s\S]*?)\n?===\s*\n([\s\S]*?)\n?>>>\s*REPLACE/g;
+    matches = Array.from(searchReplaceText.matchAll(altRegex));
+  }
+
+  if (matches.length === 0) {
+    return originalContent;
+  }
+
+  let updatedContent = originalContent;
+
+  for (const match of matches) {
+    const searchTarget = match[1];
+    const replacementText = match[2];
+
+    if (!searchTarget.trim()) continue;
+
+    // 1. Try exact string match
+    if (updatedContent.includes(searchTarget)) {
+      updatedContent = updatedContent.replace(searchTarget, replacementText);
+      continue;
+    }
+
+    // 2. Try normalized line-ending match (\r\n -> \n)
+    const normOriginal = updatedContent.replace(/\r\n/g, '\n');
+    const normSearch = searchTarget.replace(/\r\n/g, '\n');
+    const normReplace = replacementText.replace(/\r\n/g, '\n');
+
+    if (normOriginal.includes(normSearch)) {
+      updatedContent = normOriginal.replace(normSearch, normReplace);
+      continue;
+    }
+
+    // 3. Try line-by-line trimmed match
+    const origLines = updatedContent.split('\n');
+    const searchLines = normSearch.split('\n').map(l => l.trimEnd());
+    
+    if (searchLines.length > 0) {
+      let foundIndex = -1;
+      for (let i = 0; i <= origLines.length - searchLines.length; i++) {
+        let isMatch = true;
+        for (let j = 0; j < searchLines.length; j++) {
+          if (origLines[i + j].trimEnd() !== searchLines[j]) {
+            isMatch = false;
+            break;
+          }
+        }
+        if (isMatch) {
+          foundIndex = i;
+          break;
+        }
+      }
+
+      if (foundIndex !== -1) {
+        origLines.splice(foundIndex, searchLines.length, ...normReplace.split('\n'));
+        updatedContent = origLines.join('\n');
+      }
+    }
+  }
+
+  return updatedContent;
+}
+
 // ─────────────────────────── Types ───────────────────────────
 interface ChatMessage {
   id: string;
@@ -38,7 +109,7 @@ interface ChatMessage {
   timestamp: number;
   attachedFiles?: { name: string; path: string }[];
   editAction?: {
-    type: 'replace' | 'append' | 'create';
+    type: 'replace' | 'append' | 'create' | 'target_edit';
     filePath: string;
     fileName: string;
     newContent: string;
@@ -412,24 +483,34 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
 Your capabilities:
 1. Answer questions about the user's currently open files
-2. Perform line-by-line code analysis, refactoring, and note editing like VS Code Copilot
+2. Perform line-by-line code analysis, targeted refactoring, and note editing like VS Code Copilot / Cursor
 3. Explain code, summarize documents, and generate content
-4. When the user asks you to edit or replace a file, respond with the COMPLETE updated file content wrapped in an edit block:
+4. When making TARGETED EDITS to specific lines or parts of a file without replacing the rest of the file, use SEARCH/REPLACE blocks inside <<<TARGET_EDIT: filename.ext>>>:
+   <<<TARGET_EDIT: filename.ext>>>
+   <<<<<<< SEARCH
+   [exact existing code/lines to replace]
+   =======
+   [new replacement code/lines]
+   >>>>>>> REPLACE
+   <<<END_TARGET_EDIT>>>
+   You can include multiple SEARCH/REPLACE blocks to make targeted edits across different parts of the file while leaving all other lines completely untouched.
+
+5. When replacing an ENTIRE file completely, respond with an edit block:
    <<<EDIT_FILE: filename.ext>>>
    (complete new file content here)
    <<<END_EDIT>>>
-5. When the user asks you to append or add content to the end of a file, respond with an append block:
+
+6. When appending content to the end of a file, respond with an append block:
    <<<APPEND_FILE: filename.ext>>>
    (new content to append at the end of the file)
    <<<END_APPEND>>>
 
 Rules:
-- Provide comprehensive, exhaustive, and fully detailed responses without truncating or shortening any code, notes, or file outputs.
-- Never omit code or use placeholders like "// rest of code...". Always output complete, full file contents regardless of length.
-- Use markdown formatting in your responses
-- When editing files, provide the complete updated file so line diffs can be accurately calculated
-- If you're asked about a file that isn't in context, let the user know they can attach it
-- Be helpful, friendly, and proactive in suggesting improvements
+- For targeted edits, modify ONLY the specific lines requested using SEARCH/REPLACE blocks. Do NOT delete, erase, or alter unrelated surrounding code or notes.
+- Provide clear explanations before or after code edit blocks.
+- Use markdown formatting in your responses.
+- If you're asked about a file that isn't in context, let the user know they can attach it.
+- Be helpful, friendly, and proactive in suggesting precise code and note improvements.
 
 Current file context:
 ${context}`;
@@ -670,13 +751,19 @@ ${context}`;
     }
   }, [apiKey, selectedModel, provider]);
 
-  // ── Parse edit & append & create actions from AI response ──
+  // ── Parse edit & append & create & target line actions from AI response ──
   const parseEditActions = useCallback((responseText: string) => {
-    const edits: { type: 'replace' | 'append' | 'create'; fileName: string; content: string }[] = [];
+    const edits: { type: 'replace' | 'append' | 'create' | 'target_edit'; fileName: string; content: string }[] = [];
+
+    // Match TARGET_EDIT blocks (SEARCH / REPLACE format)
+    const targetEditRegex = /<<<TARGET_EDIT:\s*(.+?)>>>\n([\s\S]*?)(?:<<<END_TARGET_EDIT>>>|<<<END_EDIT>>>|$)/g;
+    let match;
+    while ((match = targetEditRegex.exec(responseText)) !== null) {
+      edits.push({ type: 'target_edit', fileName: match[1].trim(), content: match[2].trim() });
+    }
 
     // Match EDIT_FILE blocks
     const editRegex = /<<<EDIT_FILE:\s*(.+?)>>>\n([\s\S]*?)(?:<<<END_EDIT>>>|<<<END_CREATE>>>|$)/g;
-    let match;
     while ((match = editRegex.exec(responseText)) !== null) {
       edits.push({ type: 'replace', fileName: match[1].trim(), content: match[2].trim() });
     }
@@ -693,8 +780,14 @@ ${context}`;
       edits.push({ type: 'append', fileName: match[1].trim(), content: match[2].trim() });
     }
 
+    // Match standalone <<<<<<< SEARCH ... >>>>>>> REPLACE blocks if no wrapper tag was used
+    if (edits.length === 0 && (responseText.includes('<<<<<<< SEARCH') || responseText.includes('<<< SEARCH'))) {
+      const activeName = activeFile?.name || 'active_file.md';
+      edits.push({ type: 'target_edit', fileName: activeName, content: responseText });
+    }
+
     return edits;
-  }, []);
+  }, [activeFile?.name]);
 
   // ── Send message ──
   const handleSendMessage = useCallback(async () => {
@@ -732,6 +825,7 @@ ${context}`;
       // Check for edit actions in the response
       const edits = parseEditActions(responseText);
       let cleanedResponse = responseText
+        .replace(/<<<TARGET_EDIT:\s*.+?>>>\n[\s\S]*?<<<END_TARGET_EDIT>>>/g, '')
         .replace(/<<<EDIT_FILE:\s*.+?>>>\n[\s\S]*?<<<END_EDIT>>>/g, '')
         .replace(/<<<APPEND_FILE:\s*.+?>>>\n[\s\S]*?<<<END_APPEND>>>/g, '')
         .trim();
@@ -739,7 +833,7 @@ ${context}`;
       const assistantMsg: ChatMessage = {
         id: generateId(),
         role: 'assistant',
-        content: cleanedResponse || 'VS Code Copilot style edit prepared. Review line diff below:',
+        content: cleanedResponse || 'VS Code Copilot style targeted line edit prepared. Review below:',
         timestamp: Date.now()
       };
 
@@ -761,9 +855,17 @@ ${context}`;
           const originalText = matchingFile.content || '';
           let targetNewContent = edit.content;
 
-          if (edit.type === 'append') {
+          if (edit.type === 'target_edit') {
+            targetNewContent = applySearchReplaceBlocks(originalText, edit.content);
+          } else if (edit.type === 'append') {
             targetNewContent = originalText ? `${originalText.trim()}\n\n${edit.content}` : edit.content;
           }
+
+          // Calculate line diff stats
+          const oldLines = originalText.split('\n');
+          const newLines = targetNewContent.split('\n');
+          const added = Math.max(0, newLines.length - oldLines.length);
+          const removed = Math.max(0, oldLines.length - newLines.length);
 
           assistantMsg.editAction = {
             type: edit.type,
@@ -771,7 +873,8 @@ ${context}`;
             fileName: cleanEditName,
             newContent: targetNewContent,
             originalContent: originalText,
-            applied: false
+            applied: false,
+            diffStats: { added, removed }
           };
         } else {
           // File does not exist yet (File Creation Action!)
@@ -1407,7 +1510,13 @@ ${context}`;
                       <Sparkles size={14} className="copilot-diff-icon" />
                       <span className="copilot-diff-filename">{msg.editAction.fileName}</span>
                       <span className={`copilot-mode-badge ${msg.editAction.type}`}>
-                        {msg.editAction.type === 'create' ? 'NEW FILE' : 'EDIT'}
+                        {msg.editAction.type === 'create'
+                          ? 'NEW FILE'
+                          : msg.editAction.type === 'target_edit'
+                          ? 'TARGETED LINE EDIT'
+                          : msg.editAction.type === 'append'
+                          ? 'APPEND'
+                          : 'FULL EDIT'}
                       </span>
                     </div>
 
@@ -1429,6 +1538,8 @@ ${context}`;
                           ? `Open ${msg.editAction.fileName} in Editor`
                           : msg.editAction.type === 'create'
                           ? `Create & Open ${msg.editAction.fileName}`
+                          : msg.editAction.type === 'target_edit'
+                          ? `Apply Targeted Line Edit (${msg.editAction.fileName})`
                           : `Save & Open ${msg.editAction.fileName}`}
                       </span>
                     </button>
