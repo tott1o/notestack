@@ -8,7 +8,8 @@ interface ImageViewerProps {
 }
 
 export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
-  const fileKey = file.tabId || file.fullPath || file.id;
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
 
   const [zoom, setZoom] = useState<number>(100);
   const [rotation, setRotation] = useState<number>(0);
@@ -16,13 +17,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
 
   // Restore saved image zoom & rotation on load
   useLayoutEffect(() => {
-    const saved = getFileState(fileKey);
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.zoom) setZoom(saved.zoom);
     else setZoom(100);
 
     if (saved.rotation !== undefined) setRotation(saved.rotation);
     else setRotation(0);
-  }, [file.id, fileKey]);
+  }, [file.id, fileKey, isDuplicateTab]);
 
   useEffect(() => {
     let url: string | null = null;
@@ -43,8 +44,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
 
   const handleZoomIn = () => {
     setZoom(prev => {
-      const next = Math.min(300, prev + 25);
-      saveFileState(fileKey, { zoom: next, rotation });
+      const next = Math.min(500, prev + 25);
+      if (!isDuplicateTab) saveFileState(fileKey, { zoom: next, rotation });
       return next;
     });
   };
@@ -52,7 +53,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
   const handleZoomOut = () => {
     setZoom(prev => {
       const next = Math.max(25, prev - 25);
-      saveFileState(fileKey, { zoom: next, rotation });
+      if (!isDuplicateTab) saveFileState(fileKey, { zoom: next, rotation });
       return next;
     });
   };
@@ -60,13 +61,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
   const handleResetZoom = () => {
     setZoom(100);
     setRotation(0);
-    saveFileState(fileKey, { zoom: 100, rotation: 0 });
+    if (!isDuplicateTab) saveFileState(fileKey, { zoom: 100, rotation: 0 });
   };
 
   const handleRotate = () => {
     setRotation(prev => {
       const next = (prev + 90) % 360;
-      saveFileState(fileKey, { zoom, rotation: next });
+      if (!isDuplicateTab) saveFileState(fileKey, { zoom, rotation: next });
       return next;
     });
   };

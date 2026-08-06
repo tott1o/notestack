@@ -17,6 +17,7 @@ export interface FileItem {
   children?: FileItem[];
   handle?: any;
   isFavorite?: boolean;
+  isDuplicate?: boolean;
   tags?: string[];
 }
 

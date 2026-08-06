@@ -27,8 +27,9 @@ interface PptxViewerProps {
 }
 
 export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
-  const fileKey = file.tabId || file.fullPath || file.id;
-  const savedState = useMemo(() => getFileState(fileKey), [fileKey]);
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
+  const savedState = useMemo(() => (isDuplicateTab ? {} : getFileState(fileKey)), [fileKey, isDuplicateTab]);
 
   const [pptxResult, setPptxResult] = useState<PPTXjsResult | null>(null);
   const [currentSlide, setCurrentSlide] = useState<number>(savedState.currentSlide ? savedState.currentSlide : 1);
@@ -129,10 +130,10 @@ export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
   // Sync Input Slide when currentSlide updates
   useEffect(() => {
     setInputSlide(String(currentSlide));
-    if (pptxResult && pptxResult.slideCount > 0 && currentSlide >= 1) {
+    if (!isDuplicateTab && pptxResult && pptxResult.slideCount > 0 && currentSlide >= 1) {
       saveFileState(fileKey, { currentSlide });
     }
-  }, [fileKey, currentSlide, pptxResult]);
+  }, [fileKey, currentSlide, pptxResult, isDuplicateTab]);
 
   // Handle HTML5 Fullscreen sync
   useEffect(() => {
@@ -150,7 +151,9 @@ export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
     const valid = Math.min(Math.max(1, slideNum), pptxResult.slideCount || 1);
     setCurrentSlide(valid);
     setInputSlide(String(valid));
-    saveFileState(fileKey, { currentSlide: valid });
+    if (!isDuplicateTab) {
+      saveFileState(fileKey, { currentSlide: valid });
+    }
   };
 
   const handleNextSlide = () => {

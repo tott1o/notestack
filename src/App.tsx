@@ -264,13 +264,12 @@ export function App() {
 
   const handleOpenInNewTab = useCallback((file: FileItem) => {
     if (!file) return;
-    const uniqueTabId = file.tabId 
-      ? `${file.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
-      : `${file.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const uniqueTabId = `${file.id}_dup_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
     const tabInstance: FileItem = {
       ...file,
-      tabId: uniqueTabId
+      tabId: uniqueTabId,
+      isDuplicate: true
     };
     
     // Batch all state updates together to avoid multiple re-renders
@@ -345,10 +344,10 @@ export function App() {
       );
     }
 
-    // 4. If no open tab exists, assign a unique tabId to this file for openTabs
+    // 4. If no open tab exists, assign a normal tabId to this file for openTabs
     const finalTab: FileItem = targetTab || {
       ...file,
-      tabId: file.tabId || `${file.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+      tabId: file.tabId || file.id
     };
 
     const targetKey = finalTab.tabId!;
@@ -1206,7 +1205,8 @@ export function App() {
         )}
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
-          {!assignedFile || targetFileId === 'dashboard' ? (
+          {/* Dashboard view when no active file or dashboard selected */}
+          <div style={{ display: (!assignedFile || targetFileId === 'dashboard') ? 'flex' : 'none', flex: 1, width: '100%', height: '100%', flexDirection: 'column' }}>
             <DashboardOverview 
               mainDir={mainDir}
               onSelectMainDirectory={handleSelectMainDirectory}
@@ -1215,9 +1215,31 @@ export function App() {
               onCreateFolder={triggerOpenCreateFolderModal}
               onToggleFavorite={handleToggleFavorite}
             />
-          ) : (
-            renderFileViewer(assignedFile)
-          )}
+          </div>
+
+          {/* Persistent mounted tabs with 0ms DOM visibility switching */}
+          {openTabs.map(tab => {
+            const tabKey = tab.tabId || tab.id;
+            const isTabActive = targetFileId !== 'dashboard' && assignedFile && (assignedFile.tabId || assignedFile.id) === tabKey;
+
+            return (
+              <div
+                key={tabKey}
+                style={{
+                  display: isTabActive ? 'flex' : 'none',
+                  flexDirection: 'column',
+                  flex: 1,
+                  width: '100%',
+                  height: '100%',
+                  position: 'absolute',
+                  inset: 0,
+                  overflow: 'hidden'
+                }}
+              >
+                {renderFileViewer(tab)}
+              </div>
+            );
+          })}
         </div>
       </div>
     );

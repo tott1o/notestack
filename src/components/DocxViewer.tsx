@@ -89,25 +89,47 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
   };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fileKey = file.tabId || file.fullPath || file.id;
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
 
   // Instant scroll position restoration
   useLayoutEffect(() => {
     if (!loading && rawHtml) {
-      const saved = getFileState(fileKey);
+      const saved = isDuplicateTab ? {} : getFileState(fileKey);
       if (saved.scrollTop && scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = saved.scrollTop;
+        const targetScroll = saved.scrollTop;
+        scrollContainerRef.current.scrollTop = targetScroll;
+        
         requestAnimationFrame(() => {
           if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = saved.scrollTop!;
+            scrollContainerRef.current.scrollTop = targetScroll;
           }
         });
+
+        const t1 = setTimeout(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = targetScroll;
+          }
+        }, 120);
+
+        const t2 = setTimeout(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = targetScroll;
+          }
+        }, 350);
+
+        return () => {
+          clearTimeout(t1);
+          clearTimeout(t2);
+        };
       }
     }
-  }, [loading, rawHtml, fileKey]);
+  }, [loading, rawHtml, fileKey, isDuplicateTab]);
 
   const handleDocxScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    saveFileState(fileKey, { scrollTop: e.currentTarget.scrollTop });
+    if (!isDuplicateTab) {
+      saveFileState(fileKey, { scrollTop: e.currentTarget.scrollTop });
+    }
   };
 
   useEffect(() => {

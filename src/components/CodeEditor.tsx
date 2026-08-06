@@ -21,7 +21,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fileKey = file.tabId || file.fullPath || file.id;
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
 
   const highlightedHtml = useMemo(() => {
     return highlightCodeSyntax(code, file.extension || file.type || 'code');
@@ -32,7 +33,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
     setCode(file.content || '');
     setIsSaved(true);
 
-    const saved = getFileState(fileKey);
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.scrollTop) {
       if (textareaRef.current) textareaRef.current.scrollTop = saved.scrollTop;
       if (preRef.current) preRef.current.scrollTop = saved.scrollTop;
@@ -43,7 +44,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
         if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = saved.scrollTop!;
       });
     }
-  }, [file.id, fileKey]);
+  }, [file.id, fileKey, isDuplicateTab]);
 
   useEffect(() => {
     return () => {
@@ -61,7 +62,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
       preRef.current.scrollTop = scrollTop;
       preRef.current.scrollLeft = scrollLeft;
     }
-    saveFileState(fileKey, { scrollTop });
+    if (!isDuplicateTab) {
+      saveFileState(fileKey, { scrollTop });
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

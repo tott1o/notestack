@@ -55,11 +55,17 @@ export function getGlobalSession(): GlobalSessionState {
   }
 }
 
+function normalizeFileKey(fileKey: string): string {
+  if (!fileKey) return '';
+  return fileKey.replace(/\\/g, '/').toLowerCase().trim();
+}
+
 // --- Per-File State Memory Persistence ---
 export function saveFileState(fileKey: string, state: Partial<FileState>): void {
   if (!fileKey) return;
+  const normalizedKey = normalizeFileKey(fileKey);
   try {
-    const key = `${FILE_STATE_PREFIX}${encodeURIComponent(fileKey)}`;
+    const key = `${FILE_STATE_PREFIX}${encodeURIComponent(normalizedKey)}`;
     const existing = getFileState(fileKey);
     const updated: FileState = {
       ...existing,
@@ -74,8 +80,9 @@ export function saveFileState(fileKey: string, state: Partial<FileState>): void 
 
 export function getFileState(fileKey: string): FileState {
   if (!fileKey) return {};
+  const normalizedKey = normalizeFileKey(fileKey);
   try {
-    const key = `${FILE_STATE_PREFIX}${encodeURIComponent(fileKey)}`;
+    const key = `${FILE_STATE_PREFIX}${encodeURIComponent(normalizedKey)}`;
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : {};
   } catch (err) {

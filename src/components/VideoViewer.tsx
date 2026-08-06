@@ -33,20 +33,23 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({ file, onExportNotesToM
   const [lectureNotes, setLectureNotes] = useState<string>('');
   const [copiedExport, setCopiedExport] = useState<boolean>(false);
 
-  const fileKey = file.tabId || file.fullPath || file.id;
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
 
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const time = videoRef.current.currentTime;
     setCurrentTime(time);
     setDuration(videoRef.current.duration || 0);
-    saveFileState(fileKey, { currentTime: time });
+    if (!isDuplicateTab) {
+      saveFileState(fileKey, { currentTime: time });
+    }
   };
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
     setDuration(videoRef.current.duration);
-    const saved = getFileState(fileKey);
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.currentTime && saved.currentTime < videoRef.current.duration) {
       videoRef.current.currentTime = saved.currentTime;
       setCurrentTime(saved.currentTime);

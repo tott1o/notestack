@@ -9,16 +9,17 @@ interface CsvViewerProps {
 }
 
 export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) => {
-  const fileKey = file.tabId || file.fullPath || file.id;
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
 
   const [csvText, setCsvText] = useState<string>(file.content || '');
   const [loadAllRows, setLoadAllRows] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'grid' | 'raw'>(() => {
-    const saved = getFileState(fileKey);
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
     return (saved.viewMode as 'grid' | 'raw') || 'grid';
   });
   const [searchQuery, setSearchQuery] = useState<string>(() => {
-    const saved = getFileState(fileKey);
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
     return saved.searchQuery || '';
   });
   const [isSaved, setIsSaved] = useState<boolean>(true);
@@ -32,17 +33,19 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
     setIsSaved(true);
     setLoadAllRows(false);
 
-    const saved = getFileState(fileKey);
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.searchQuery) setSearchQuery(saved.searchQuery);
     if (saved.viewMode) setViewMode(saved.viewMode as 'grid' | 'raw');
 
     if (saved.scrollTop && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = saved.scrollTop;
     }
-  }, [file.id, fileKey]);
+  }, [file.id, fileKey, isDuplicateTab]);
 
   const handleCsvScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    saveFileState(fileKey, { scrollTop: e.currentTarget.scrollTop, searchQuery, viewMode });
+    if (!isDuplicateTab) {
+      saveFileState(fileKey, { scrollTop: e.currentTarget.scrollTop, searchQuery, viewMode });
+    }
   };
 
   useEffect(() => {

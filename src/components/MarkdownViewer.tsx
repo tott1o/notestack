@@ -77,13 +77,17 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSyncScrolling = useRef<boolean>(false);
 
-  const fileKey = file.tabId || file.fullPath || file.id;
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
 
-  // Restore scroll position instantly before paint when active file changes
+  const isRestoringRef = useRef<boolean>(true);
+
+  // Restore scroll position instantly before & after DOM rendering when active file changes
   useLayoutEffect(() => {
     const newContent = file.content || '';
     setContent(newContent);
     setIsSaved(true);
+    isRestoringRef.current = true;
 
     // Reset undo/redo history for new file
     undoStackRef.current = [];
@@ -92,16 +96,36 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     setCanUndo(false);
     setCanRedo(false);
 
-    const saved = getFileState(fileKey);
-    if (saved.scrollTop) {
-      if (textareaRef.current) textareaRef.current.scrollTop = saved.scrollTop;
-      if (previewRef.current) previewRef.current.scrollTop = saved.scrollTop;
-      requestAnimationFrame(() => {
-        if (textareaRef.current) textareaRef.current.scrollTop = saved.scrollTop!;
-        if (previewRef.current) previewRef.current.scrollTop = saved.scrollTop!;
-      });
+    // Duplicate tabs do not load or save persistent state
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    const targetScrollTop = saved.scrollTop;
+
+    if (targetScrollTop && targetScrollTop > 0) {
+      const applyScroll = () => {
+        if (textareaRef.current) textareaRef.current.scrollTop = targetScrollTop;
+        if (previewRef.current) previewRef.current.scrollTop = targetScrollTop;
+        if (lineGutterRef.current) lineGutterRef.current.scrollTop = targetScrollTop;
+      };
+
+      applyScroll();
+      requestAnimationFrame(applyScroll);
+
+      const t1 = setTimeout(applyScroll, 80);
+      const t2 = setTimeout(applyScroll, 250);
+      const t3 = setTimeout(() => {
+        applyScroll();
+        isRestoringRef.current = false;
+      }, 450);
+
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    } else {
+      isRestoringRef.current = false;
     }
-  }, [file.id, fileKey]);
+  }, [file.id, fileKey, isDuplicateTab]);
 
   // Sync content state when file.content prop changes externally (e.g. AI edits or disk reloads)
   useEffect(() => {
@@ -130,7 +154,9 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
       lineGutterRef.current.scrollTop = scrollTop;
     }
 
-    saveFileState(fileKey, { scrollTop });
+    if (!isRestoringRef.current && !isDuplicateTab) {
+      saveFileState(fileKey, { scrollTop });
+    }
 
     // Sync preview scroll position proportionally in split mode
     if (activeMode === 'split' && previewRef.current && !isSyncScrolling.current) {
@@ -181,7 +207,9 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     const previewEl = e.currentTarget;
     const scrollTop = previewEl.scrollTop;
 
-    saveFileState(fileKey, { scrollTop });
+    if (!isRestoringRef.current && !isDuplicateTab) {
+      saveFileState(fileKey, { scrollTop });
+    }
 
     if (activeMode === 'split' && textareaRef.current && !isSyncScrolling.current) {
       isSyncScrolling.current = true;

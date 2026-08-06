@@ -32,7 +32,8 @@ interface PdfMatch {
 export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [engineMode, setEngineMode] = useState<'canvas' | 'edge'>('canvas');
-  const fileKey = file.tabId || file.fullPath || file.id;
+  const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
+  const fileKey = file.fullPath || file.id;
 
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [inputPage, setInputPage] = useState<string>('1');
@@ -51,17 +52,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const isRestoringRef = useRef<boolean>(true);
+
   // Reset pageRefs & load initial saved page on file change
   useEffect(() => {
     pageRefs.current.clear();
-    const saved = getFileState(fileKey);
+    isRestoringRef.current = true;
+    const saved = isDuplicateTab ? {} : getFileState(fileKey);
     const initialPage = saved.pageNumber || 1;
     setPageNumber(initialPage);
     setInputPage(String(initialPage));
     setSearchQuery('');
     setSearchResults([]);
     setCurrentMatchIdx(0);
-  }, [fileKey]);
+  }, [fileKey, isDuplicateTab]);
 
   // Trackpad Pinch & Ctrl+Wheel Zoom Listener for PDF Viewer
   useEffect(() => {
@@ -118,13 +122,16 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         setNumPages(pdf.numPages);
         setLoading(false);
       } catch (err) {
-        console.error("Failed to load PDF:", err);
+        console.error('Failed to load PDF via pdfjs:', err);
         if (isMounted) setLoading(false);
       }
     }
 
     loadPdf();
-    return () => { isMounted = false; };
+
+    return () => {
+      isMounted = false;
+    };
   }, [pdfUrl]);
 
   // PDF Text Search Engine across pages
@@ -243,33 +250,59 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     }
   }, [engineMode, loading, numPages, renderAllPages]);
 
+  // Jump to saved page or scroll position when numPages & container are ready
   useLayoutEffect(() => {
     if (engineMode === 'canvas' && !loading && numPages > 0 && containerRef.current) {
-      const saved = getFileState(fileKey);
-      if (saved.scrollTop && saved.scrollTop > 0) {
-        containerRef.current.scrollTop = saved.scrollTop;
-      } else if (saved.pageNumber && saved.pageNumber > 1) {
-        const targetEl = pageRefs.current.get(saved.pageNumber);
-        if (targetEl && containerRef.current) {
-          containerRef.current.scrollTop = targetEl.offsetTop - containerRef.current.offsetTop;
+      const saved = isDuplicateTab ? {} : getFileState(fileKey);
+      const targetPage = saved.pageNumber || 1;
+      const savedScrollTop = saved.scrollTop;
+
+      const performJump = () => {
+        if (!containerRef.current) return;
+
+        if (targetPage > 1) {
+          const targetEl = pageRefs.current.get(targetPage);
+          if (targetEl) {
+            const offset = Math.max(0, targetEl.offsetTop - containerRef.current.offsetTop - 10);
+            containerRef.current.scrollTop = offset;
+          }
+        } else if (savedScrollTop && savedScrollTop > 0) {
+          containerRef.current.scrollTop = savedScrollTop;
         }
-      }
+
+        setTimeout(() => {
+          isRestoringRef.current = false;
+        }, 300);
+      };
+
+      performJump();
+      requestAnimationFrame(performJump);
+      const t1 = setTimeout(performJump, 150);
+      const t2 = setTimeout(performJump, 450);
+
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
-  }, [engineMode, loading, numPages, fileKey]);
+  }, [engineMode, loading, numPages, fileKey, isDuplicateTab]);
 
   useEffect(() => {
     return () => {
-      if (containerRef.current && containerRef.current.scrollTop >= 0) {
+      if (!isDuplicateTab && !isRestoringRef.current && containerRef.current && containerRef.current.scrollTop >= 0) {
         saveFileState(fileKey, { 
           scrollTop: containerRef.current.scrollTop, 
           pageNumber 
         });
       }
     };
-  }, [fileKey, pageNumber]);
+  }, [fileKey, pageNumber, isDuplicateTab]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
+
+    if (isRestoringRef.current) return;
+
     let activePage = pageNumber;
     let minDistance = Infinity;
 
@@ -291,7 +324,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
 
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(() => {
-      saveFileState(fileKey, { scrollTop, pageNumber: activePage });
+      if (!isRestoringRef.current && !isDuplicateTab) {
+        saveFileState(fileKey, { scrollTop, pageNumber: activePage });
+      }
     }, 200);
   };
 
