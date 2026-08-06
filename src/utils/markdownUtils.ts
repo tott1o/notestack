@@ -93,12 +93,11 @@ renderer.hr = function() {
 
 // ─── Callout & Blockquote Parser (Obsidian & GitHub Flavored Spec) ───────────
 // marked v18 passes raw text to renderer.blockquote, NOT HTML-wrapped.
-// e.g. text = "[!NOTE]\nThis is a note callout." (no <p> tags)
+// It also does NOT recursively process nested blockquotes — we get raw `> ` markers.
 renderer.blockquote = function({ text }: { text: string }) {
   const safeText = (text || '').trim();
 
-  // Match [!TYPE] at the very start of the raw text (marked v18 gives us raw text, not HTML)
-  // Also match if marked has already wrapped it in <p> tags (fallback for edge cases)
+  // ── 1. Check for callout syntax [!TYPE] ────────────────────────────────
   const rawCalloutRegex = /^\s*(?:<p>\s*)?\[!([A-Za-z]+)\](?:\s*([^\n<]*))?(?:<\/p>)?\s*/i;
   const match = safeText.match(rawCalloutRegex);
 
@@ -107,34 +106,38 @@ renderer.blockquote = function({ text }: { text: string }) {
     const config = getCalloutConfig(rawType);
 
     if (config) {
-      // Extract the custom title (text on the same line after [!TYPE]) and body content
       const sameLineText = (match[2] || '').trim();
-      
-      // Everything after the matched [!TYPE] line is the body
       let bodyRaw = safeText.substring(match[0].length).trim();
       
-      // Determine display title and body
       let displayTitle = config.title;
       let bodyContent = '';
 
       if (bodyRaw.length > 0) {
-        // Multi-line callout: [!TYPE] on line 1, body on subsequent lines
-        if (sameLineText) {
-          displayTitle = sameLineText;
-        }
+        if (sameLineText) displayTitle = sameLineText;
         bodyContent = bodyRaw;
       } else if (sameLineText) {
-        // Single-line callout: [!TYPE] Some text all on one line
         bodyContent = sameLineText;
       }
 
-      // Strip leading <p> / </p> wrappers from body if present
+      // Format bodyContent HTML cleanly & process inline markdown (bold, italic, code)
       bodyContent = bodyContent.replace(/^\s*<p>\s*/i, '').replace(/\s*<\/p>\s*$/i, '').trim();
 
-      // Wrap body in <p> if it's plain text
-      if (bodyContent && !bodyContent.startsWith('<p>') && !bodyContent.startsWith('<ul') && !bodyContent.startsWith('<ol') && !bodyContent.startsWith('<div') && !bodyContent.startsWith('<h')) {
-        bodyContent = `<p>${bodyContent}</p>`;
+      const formatInlineMarkdown = (str: string) => {
+        return str
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>');
+      };
+
+      if (bodyContent) {
+        if (!bodyContent.startsWith('<p>') && !bodyContent.startsWith('<ul') && !bodyContent.startsWith('<ol') && !bodyContent.startsWith('<div') && !bodyContent.startsWith('<h')) {
+          bodyContent = `<p>${formatInlineMarkdown(bodyContent)}</p>`;
+        } else {
+          bodyContent = formatInlineMarkdown(bodyContent);
+        }
       }
+
+      displayTitle = formatInlineMarkdown(displayTitle);
 
       return `
         <div class="study-callout study-callout-${config.typeKey}" style="--callout-color: ${config.borderColor}; --callout-bg: ${config.bgColor}; --callout-border: ${config.cardBorder};">
@@ -153,8 +156,65 @@ renderer.blockquote = function({ text }: { text: string }) {
     }
   }
 
-  // Standard Blockquote: Return clean, valid <blockquote> tag
-  return `<blockquote>${safeText}</blockquote>`;
+  // ── 2. Standard Blockquote — Build rich editorial card HTML ─────────────
+  // marked v18 gives us raw text with \n separators and nested > markers
+  
+  // Helper: recursively parse nested blockquote content from raw text lines
+  function buildBlockquoteHtml(rawLines: string[], depth: number): string {
+    const myLines: string[] = [];
+    const nestedLines: string[] = [];
+    let collectingNested = false;
+    
+    for (const line of rawLines) {
+      // Check if this line starts with > (nested blockquote)
+      const nestedMatch = line.match(/^>\s?(.*)/);
+      if (nestedMatch) {
+        collectingNested = true;
+        nestedLines.push(nestedMatch[1]);
+      } else {
+        if (collectingNested) {
+          // Flush nested blockquote
+          collectingNested = false;
+        }
+        myLines.push(line);
+      }
+    }
+
+    // Convert own lines to paragraphs
+    const paragraphs = myLines.join('\n').split(/\n{2,}/);
+    let bodyHtml = paragraphs
+      .map(p => p.trim())
+      .filter(p => p.length > 0)
+      .map(p => {
+        // Process inline markdown: bold, italic, inline code
+        let html = p
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>');
+        return `<p>${html}</p>`;
+      })
+      .join('\n');
+
+    // Process nested blockquote recursively
+    if (nestedLines.length > 0) {
+      bodyHtml += buildBlockquoteHtml(nestedLines, depth + 1);
+    }
+
+    const depthClass = depth === 0 ? '' : depth === 1 ? ' bq-nested-l2' : ' bq-nested-l3';
+    const quoteIcon = depth === 0 
+      ? `<svg class="bq-quote-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" opacity="0.12"><path d="M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z"/></svg>`
+      : '';
+
+    return `
+      <blockquote class="bq-card${depthClass}">
+        ${quoteIcon}
+        <div class="bq-body">${bodyHtml}</div>
+      </blockquote>
+    `;
+  }
+
+  const lines = safeText.split('\n');
+  return buildBlockquoteHtml(lines, 0);
 };
 
 marked.use({ renderer, gfm: true, breaks: true });
