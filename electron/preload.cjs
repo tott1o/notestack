@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternalFile: (filePath) => ipcRenderer.invoke('fs:openExternalFile', filePath),
   deleteItem: (itemPath) => ipcRenderer.invoke('fs:deleteItem', itemPath),
   renameItem: (oldPath, newName) => ipcRenderer.invoke('fs:renameItem', { oldPath, newName }),
+  openExternalUrl: (url) => ipcRenderer.invoke('shell:openExternalUrl', url),
   getSavedDirectory: () => ipcRenderer.invoke('config:getSavedDirectory'),
   saveVaultList: (vaults) => ipcRenderer.invoke('config:saveVaultList', vaults),
   removeSavedVault: (vaultPath) => ipcRenderer.invoke('config:removeSavedVault', vaultPath)

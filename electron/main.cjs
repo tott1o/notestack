@@ -117,6 +117,26 @@ function createWindow() {
     mainWindow.setIcon(appIcon);
   }
 
+  // Intercept new window requests (target="_blank") and open external URLs in default system browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('mailto:')) {
+      shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+
+  // Intercept in-app link navigation to prevent overriding NoteStack UI
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('http:') || url.startsWith('https:')) {
+      if (process.argv.includes('--dev') && url.startsWith('http://localhost:5173')) {
+        return;
+      }
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
   const indexPath = path.join(__dirname, '../dist/index.html');
   
   if (process.argv.includes('--dev')) {
@@ -127,6 +147,19 @@ function createWindow() {
     });
   }
 }
+
+ipcMain.handle('shell:openExternalUrl', async (_, url) => {
+  try {
+    if (url && (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('mailto:'))) {
+      await shell.openExternal(url);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error(`Failed to open external URL ${url}:`, err);
+    return false;
+  }
+});
 
 ipcMain.handle('dialog:openDirectory', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

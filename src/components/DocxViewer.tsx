@@ -89,7 +89,7 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
   };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
 
   // Instant scroll position restoration
   useLayoutEffect(() => {

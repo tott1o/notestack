@@ -9,7 +9,7 @@ interface CsvViewerProps {
 }
 
 export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) => {
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
 
   const [csvText, setCsvText] = useState<string>(file.content || '');
   const [loadAllRows, setLoadAllRows] = useState<boolean>(false);

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { FileItem, MainDirectory } from '../types';
 import { getFileTextContentForAI } from '../utils/fileContentExtractor';
+import mermaid from 'mermaid';
 
 // ── Targeted Line / Search-Replace Edit Engine ────────────────────────────────
 export function applySearchReplaceBlocks(originalContent: string, searchReplaceText: string): string {
@@ -341,6 +342,34 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
   }, [messages, isLoading]);
 
+  // ── Render Mermaid diagrams inside AI Chat messages ──
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'loose',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      });
+
+      const nodes = document.querySelectorAll('.ai-chat-messages .mermaid-diagram-card');
+      nodes.forEach(async (node, idx) => {
+        const rawCode = node.getAttribute('data-mermaid-code');
+        if (rawCode && !node.getAttribute('data-rendered')) {
+          node.setAttribute('data-rendered', 'true');
+          const id = `ai_chat_mermaid_${Date.now()}_${idx}`;
+          try {
+            const { svg } = await mermaid.render(id, rawCode);
+            node.innerHTML = svg;
+          } catch (err) {
+            console.error('Mermaid render error in AI Chat:', err);
+          }
+        }
+      });
+    } catch (e) {}
+  }, [messages, isOpen]);
+
   // ── Focus input when panel opens ──
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -479,38 +508,69 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       throw new Error('NO_API_KEY');
     }
 
-    const systemPrompt = `You are NoteStack AI — an intelligent coding and note-taking assistant embedded in a desktop file manager app called NoteStack. 
+    const systemPrompt = `You are NoteStack AI — an intelligent, highly skilled AI coding, scientific, and note-taking assistant embedded in NoteStack.
 
-Your capabilities:
-1. Answer questions about the user's currently open files
-2. Perform line-by-line code analysis, targeted refactoring, and note editing like VS Code Copilot / Cursor
-3. Explain code, summarize documents, and generate content
-4. When making TARGETED EDITS to specific lines or parts of a file without replacing the rest of the file, use SEARCH/REPLACE blocks inside <<<TARGET_EDIT: filename.ext>>>:
-   <<<TARGET_EDIT: filename.ext>>>
-   <<<<<<< SEARCH
-   [exact existing code/lines to replace]
-   =======
-   [new replacement code/lines]
-   >>>>>>> REPLACE
-   <<<END_TARGET_EDIT>>>
-   You can include multiple SEARCH/REPLACE blocks to make targeted edits across different parts of the file while leaving all other lines completely untouched.
+Response Formatting Rules (MARKDOWN KITCHEN SINK SPECIFICATION):
+You MUST format your responses using rich, comprehensive GitHub/Obsidian-style Markdown:
+1. **Typography & Formatting**:
+   - Use bold (**text**), italics (*text*), strikethrough (~~text~~), highlights (==text==), \`inline code\`, and <kbd>Keyboard Shortcuts</kbd> (e.g. <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd>).
+   - Use subscript H~2~O and superscript E = mc^2^ where appropriate.
+2. **Headings**:
+   - Organize long explanations into logical sections using # H1, ## H2, ### H3, #### H4.
+3. **Blockquotes & Callout Cards**:
+   - Use GitHub-style callouts for key takeaways, advice, and warnings:
+     > [!NOTE]
+     > Helpful background context or note information.
+     
+     > [!TIP]
+     > Useful performance tips, shortcuts, or recommendations.
+     
+     > [!IMPORTANT]
+     > Essential details or requirements.
+     
+     > [!WARNING]
+     > Potential pitfalls or mistakes to avoid.
+     
+     > [!CAUTION]
+     > Advises about potential negative consequences.
+4. **Lists & Task Checklists**:
+   - Use task checklists for action items:
+     - [x] Completed task step
+     - [ ] Pending action item
+5. **Code Blocks & Syntax Highlighting**:
+   - Always wrap code in fenced code blocks with exact language identifiers (\`\`\`typescript, \`\`\`python, \`\`\`css, \`\`\`bash).
+6. **Tables**:
+   - Use aligned Markdown tables (| Feature | Status | Priority |) for comparisons and summaries.
+7. **LaTeX Mathematical Equations**:
+   - Use inline math $e^{i\pi} + 1 = 0$ for equations inside text paragraphs.
+   - Use block display math $$f(x) = \\frac{1}{\\sigma \\sqrt{2\\pi}} e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}$$ for equations on standalone lines.
+8. **Mermaid Diagrams & Graphs**:
+   - Use \`\`\`mermaid blocks for flowcharts, sequence diagrams, and pie charts (e.g., \`\`\`mermaid\\ngraph TD\\n A[Start]-->B[Process]\\n\`\`\`).
+9. **Interactive Accordions & Footnotes**:
+   - Use <details><summary><b>Click to expand</b></summary>content</details> for expandable sections.
+   - Use footnotes [^1] and [^1]: details for references.
 
-5. When replacing an ENTIRE file completely, respond with an edit block:
-   <<<EDIT_FILE: filename.ext>>>
-   (complete new file content here)
-   <<<END_EDIT>>>
-
-6. When appending content to the end of a file, respond with an append block:
-   <<<APPEND_FILE: filename.ext>>>
-   (new content to append at the end of the file)
-   <<<END_APPEND>>>
-
-Rules:
-- For targeted edits, modify ONLY the specific lines requested using SEARCH/REPLACE blocks. Do NOT delete, erase, or alter unrelated surrounding code or notes.
-- Provide clear explanations before or after code edit blocks.
-- Use markdown formatting in your responses.
-- If you're asked about a file that isn't in context, let the user know they can attach it.
-- Be helpful, friendly, and proactive in suggesting precise code and note improvements.
+Code Editing Directives:
+- For TARGETED EDITS (modifying specific lines without replacing the rest of the file), use:
+  <<<TARGET_EDIT: filename.ext>>>
+  <<<<<<< SEARCH
+  [exact existing code/lines to replace]
+  =======
+  [new replacement code/lines]
+  >>>>>>> REPLACE
+  <<<END_TARGET_EDIT>>>
+- For REPLACING an entire file completely:
+  <<<EDIT_FILE: filename.ext>>>
+  (complete new file content)
+  <<<END_EDIT>>>
+- For CREATING a new file:
+  <<<CREATE_FILE: filename.ext>>>
+  (new file content)
+  <<<END_CREATE>>>
+- For APPENDING to a file:
+  <<<APPEND_FILE: filename.ext>>>
+  (content to append)
+  <<<END_APPEND>>>
 
 Current file context:
 ${context}`;
@@ -1087,34 +1147,118 @@ ${context}`;
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleCreateNoteFromAI = (content: string) => {
+  // ── Modals for New Note & Append to Note ──
+  const [newNoteModal, setNewNoteModal] = useState<{
+    isOpen: boolean;
+    content: string;
+    filename: string;
+    selectedFolder: string;
+  } | null>(null);
+
+  const [appendToNoteModal, setAppendToNoteModal] = useState<{
+    isOpen: boolean;
+    content: string;
+    searchQuery: string;
+  } | null>(null);
+
+  // Collect all folders in vault
+  const vaultFolders = useMemo(() => {
+    const folders: { name: string; path: string }[] = [
+      { name: `📁 Vault Root (${mainDir.name})`, path: mainDir.path || '/' }
+    ];
+
+    const scan = (items: FileItem[]) => {
+      for (const item of items) {
+        if (item.type === 'folder') {
+          const itemPath = item.fullPath || item.path || item.name;
+          const displayPath = item.path ? item.path.replace(/^\//, '').replace(/\//g, ' / ') : item.name;
+          folders.push({ name: `📁 ${displayPath}`, path: itemPath });
+          if (item.children) {
+            scan(item.children);
+          }
+        }
+      }
+    };
+
+    scan(mainDir.files || []);
+    return folders;
+  }, [mainDir]);
+
+  // Open New Note Dialog
+  const handleOpenNewNoteModal = useCallback((content: string) => {
     const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#'));
     const defaultTitle = lines[0]
-      ? lines[0].replace(/[^a-zA-Z0-9\s-]/g, '').substring(0, 30).trim()
+      ? lines[0].replace(/[^a-zA-Z0-9\s-_]/g, '').substring(0, 35).trim()
       : `AI Note ${new Date().toISOString().substring(0, 10)}`;
-    const title = prompt('Enter a name for the new note:', defaultTitle || 'AI Note');
-    if (!title || !title.trim()) return;
 
-    const targetFolder = getTargetFolderForNewNote();
+    const targetFolder = getTargetFolderForNewNote() || mainDir.path || '/';
+
+    setNewNoteModal({
+      isOpen: true,
+      content,
+      filename: defaultTitle || 'AI Note',
+      selectedFolder: targetFolder
+    });
+  }, [getTargetFolderForNewNote, mainDir.path]);
+
+  // Submit New Note
+  const handleConfirmCreateNote = useCallback(async () => {
+    if (!newNoteModal || !newNoteModal.filename.trim()) return;
+
+    let cleanName = newNoteModal.filename.trim();
+    if (!cleanName.endsWith('.md') && !cleanName.endsWith('.txt') && !cleanName.includes('.')) {
+      cleanName = `${cleanName}.md`;
+    }
+
     if (onCreateNoteFromAI) {
-      onCreateNoteFromAI(title.trim(), content, targetFolder);
-      showNotification('success', `Created note "${title.trim()}.md" in ${targetFolder || 'vault'}!`);
+      await onCreateNoteFromAI(cleanName, newNoteModal.content, newNoteModal.selectedFolder);
+      showNotification('success', `Created note "${cleanName}" in selected location!`);
     }
-  };
+    setNewNoteModal(null);
+  }, [newNoteModal, onCreateNoteFromAI, showNotification]);
 
-  const handleWriteToActiveFile = (content: string) => {
-    if (!activeFile) return;
-    const currentContent = activeFile.content || '';
-    const newContent = currentContent ? `${currentContent}\n\n${content}` : content;
-    
-    if (onFileContentUpdated && (activeFile.fullPath || activeFile.path)) {
-      onFileContentUpdated(activeFile.fullPath || activeFile.path || activeFile.name, newContent);
-    } else if (onContentChange) {
-      onContentChange(newContent);
+  // Open Append to Note Dialog
+  const handleOpenAppendModal = useCallback((content: string) => {
+    setAppendToNoteModal({
+      isOpen: true,
+      content,
+      searchQuery: ''
+    });
+  }, []);
+
+  // Submit Append to Selected Note
+  const handleConfirmAppendToNote = useCallback(async (targetFile: FileItem) => {
+    if (!appendToNoteModal) return;
+
+    let targetPath = targetFile.fullPath || targetFile.path || targetFile.name;
+    let existingContent = targetFile.content || '';
+
+    if (!existingContent && window.electronAPI?.readFileText && targetFile.fullPath) {
+      try {
+        const text = await window.electronAPI.readFileText(targetFile.fullPath);
+        if (text !== null) existingContent = text;
+      } catch (e) {
+        console.error('Error reading note file content:', e);
+      }
     }
-    
-    showNotification('success', `Written AI content into "${activeFile.name}"`);
-  };
+
+    const updatedContent = existingContent
+      ? `${existingContent.trim()}\n\n${appendToNoteModal.content}`
+      : appendToNoteModal.content;
+
+    if (window.electronAPI?.writeFileText && targetFile.fullPath) {
+      await window.electronAPI.writeFileText(targetFile.fullPath, updatedContent);
+    }
+
+    if (onFileContentUpdated) {
+      onFileContentUpdated(targetPath, updatedContent);
+    } else if (onContentChange && activeFile && (activeFile.id === targetFile.id || activeFile.fullPath === targetFile.fullPath)) {
+      onContentChange(updatedContent);
+    }
+
+    showNotification('success', `Appended AI response to "${targetFile.name}"!`);
+    setAppendToNoteModal(null);
+  }, [appendToNoteModal, activeFile, onFileContentUpdated, onContentChange, showNotification]);
 
   // ── Save API key ──
   const handleSaveApiKey = useCallback(() => {
@@ -1561,23 +1705,21 @@ ${context}`;
                   <>
                     <button
                       className="ai-msg-action-btn"
-                      onClick={() => handleCreateNoteFromAI(msg.content)}
-                      title="Create new note file from response"
+                      onClick={() => handleOpenNewNoteModal(msg.content)}
+                      title="Create new note with custom name & folder location"
                     >
                       <FilePlus size={12} />
                       <span style={{ fontSize: '0.62rem', marginLeft: 3 }}>New Note</span>
                     </button>
 
-                    {activeFile && activeFile.type === 'md' && (
-                      <button
-                        className="ai-msg-action-btn"
-                        onClick={() => handleWriteToActiveFile(msg.content)}
-                        title={`Append response to active file (${activeFile.name})`}
-                      >
-                        <Edit3 size={12} />
-                        <span style={{ fontSize: '0.62rem', marginLeft: 3 }}>Write to Note</span>
-                      </button>
-                    )}
+                    <button
+                      className="ai-msg-action-btn"
+                      onClick={() => handleOpenAppendModal(msg.content)}
+                      title="Select a note file to append AI response at end"
+                    >
+                      <Edit3 size={12} />
+                      <span style={{ fontSize: '0.62rem', marginLeft: 3 }}>Write to Note</span>
+                    </button>
                   </>
                 )}
               </div>
@@ -1777,6 +1919,105 @@ ${context}`;
           {activeFile && autoAttachActiveFile && !excludeAutoContext && <span className="ai-input-context-hint">Context: {activeFile.name}</span>}
         </div>
       </div>
+
+      {/* ── New Note Dialog Overlay ── */}
+      {newNoteModal && (
+        <div className="ai-modal-overlay" onClick={() => setNewNoteModal(null)}>
+          <div className="ai-modal-card" onClick={e => e.stopPropagation()}>
+            <div className="ai-modal-header">
+              <div className="ai-modal-title">
+                <FilePlus size={16} style={{ color: 'var(--primary)' }} />
+                <span>Create New Note from AI</span>
+              </div>
+              <button className="ai-modal-close" onClick={() => setNewNoteModal(null)}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="ai-modal-body">
+              <label className="ai-modal-label">Note Title / File Name</label>
+              <input
+                type="text"
+                className="ai-modal-input"
+                placeholder="e.g. Sorting_Algorithms.md"
+                value={newNoteModal.filename}
+                onChange={e => setNewNoteModal({ ...newNoteModal, filename: e.target.value })}
+                autoFocus
+              />
+
+              <label className="ai-modal-label" style={{ marginTop: 12 }}>Save Location / Folder</label>
+              <select
+                className="ai-modal-select"
+                value={newNoteModal.selectedFolder}
+                onChange={e => setNewNoteModal({ ...newNoteModal, selectedFolder: e.target.value })}
+              >
+                {vaultFolders.map((f, i) => (
+                  <option key={i} value={f.path}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="ai-modal-footer">
+              <button className="ai-modal-btn cancel" onClick={() => setNewNoteModal(null)}>Cancel</button>
+              <button className="ai-modal-btn primary" onClick={handleConfirmCreateNote}>
+                <FilePlus size={14} />
+                <span>Create & Open Note</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Append to Note Dialog Overlay ── */}
+      {appendToNoteModal && (
+        <div className="ai-modal-overlay" onClick={() => setAppendToNoteModal(null)}>
+          <div className="ai-modal-card" onClick={e => e.stopPropagation()}>
+            <div className="ai-modal-header">
+              <div className="ai-modal-title">
+                <Edit3 size={16} style={{ color: 'var(--accent-cyan)' }} />
+                <span>Select Note to Append AI Content</span>
+              </div>
+              <button className="ai-modal-close" onClick={() => setAppendToNoteModal(null)}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="ai-modal-body">
+              <input
+                type="text"
+                className="ai-modal-input"
+                placeholder="Search note files by name..."
+                value={appendToNoteModal.searchQuery}
+                onChange={e => setAppendToNoteModal({ ...appendToNoteModal, searchQuery: e.target.value })}
+                autoFocus
+              />
+
+              <div className="ai-modal-file-list">
+                {allVaultFiles
+                  .filter(f => f.type === 'md' || f.name.endsWith('.md') || f.name.endsWith('.txt'))
+                  .filter(f => !appendToNoteModal.searchQuery.trim() || f.name.toLowerCase().includes(appendToNoteModal.searchQuery.toLowerCase()))
+                  .map(f => {
+                    const isActive = activeFile && (activeFile.id === f.id || activeFile.fullPath === f.fullPath);
+                    return (
+                      <button
+                        key={f.id}
+                        className={`ai-modal-file-item ${isActive ? 'active' : ''}`}
+                        onClick={() => handleConfirmAppendToNote(f)}
+                      >
+                        <FileText size={14} style={{ color: isActive ? 'var(--primary)' : 'var(--text-muted)' }} />
+                        <span className="ai-modal-file-name">{f.name}</span>
+                        {isActive && <span className="ai-file-tab-badge active">active note</span>}
+                        <span className="ai-modal-file-path">{f.path}</span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+            <div className="ai-modal-footer">
+              <button className="ai-modal-btn cancel" onClick={() => setAppendToNoteModal(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

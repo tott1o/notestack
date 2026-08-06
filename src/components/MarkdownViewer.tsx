@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import mermaid from 'mermaid';
 import { 
   Bold, 
   Italic, 
@@ -76,7 +77,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSyncScrolling = useRef<boolean>(false);
 
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
 
   // Restore scroll position instantly before paint when active file changes
   useLayoutEffect(() => {
@@ -144,6 +145,38 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     }
   };
 
+  // Intercept clicks on links inside preview pane to force external URLs to system browser
+  const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const anchor = target.closest('a');
+
+    if (anchor) {
+      const href = anchor.getAttribute('href');
+      if (href) {
+        // Handle internal heading / footnote anchors smoothly inside NoteStack
+        if (href.startsWith('#')) {
+          e.preventDefault();
+          const targetId = href.substring(1);
+          const targetEl = previewRef.current?.querySelector(`[id="${targetId}"]`);
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          return;
+        }
+
+        // Force HTTP/HTTPS/mailto links to open in the user's default external browser
+        if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
+          e.preventDefault();
+          if (window.electronAPI?.openExternalUrl) {
+            window.electronAPI.openExternalUrl(href);
+          } else {
+            window.open(href, '_blank', 'noopener,noreferrer');
+          }
+        }
+      }
+    }
+  };
+
   const handlePreviewScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const previewEl = e.currentTarget;
     const scrollTop = previewEl.scrollTop;
@@ -204,10 +237,51 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     };
   }, []);
 
+  // Initialize Mermaid configuration
+  useEffect(() => {
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'loose',
+        fontFamily: 'Inter, sans-serif'
+      });
+    } catch (e) {
+      console.error('Mermaid init error:', e);
+    }
+  }, []);
+
   // Compute live rendered HTML & Outline
   const renderedHtml = useMemo(() => {
     return renderMarkdownToHtml(content, settings.bionicReading);
   }, [content, settings.bionicReading]);
+
+  // Render Mermaid diagrams whenever renderedHtml updates or mode changes
+  useLayoutEffect(() => {
+    if (previewRef.current) {
+      const mermaidNodes = previewRef.current.querySelectorAll('.mermaid-diagram-card');
+      mermaidNodes.forEach(async (node, idx) => {
+        const code = decodeURIComponent(node.getAttribute('data-mermaid') || '');
+        if (code && !node.getAttribute('data-processed')) {
+          node.setAttribute('data-processed', 'true');
+          try {
+            const id = `mermaid-svg-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+            const { svg } = await mermaid.render(id, code);
+            const container = node.querySelector('.mermaid-container');
+            if (container) {
+              container.innerHTML = svg;
+            }
+          } catch (e) {
+            console.error('Mermaid render error:', e);
+            const container = node.querySelector('.mermaid-container');
+            if (container) {
+              container.innerHTML = `<pre class="mermaid-error" style="color: var(--accent-rose); font-size: 0.8rem; padding: 12px; font-family: monospace;">${code}</pre>`;
+            }
+          }
+        }
+      });
+    }
+  }, [renderedHtml, activeMode]);
 
   const wordCount = useMemo(() => {
     return content.trim() ? content.trim().split(/\s+/).length : 0;
@@ -826,6 +900,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
           <div 
             ref={previewRef}
             onScroll={handlePreviewScroll}
+            onClick={handlePreviewClick}
             className="preview-pane"
           >
             <div 

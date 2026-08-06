@@ -33,7 +33,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({ file, onExportNotesToM
   const [lectureNotes, setLectureNotes] = useState<string>('');
   const [copiedExport, setCopiedExport] = useState<boolean>(false);
 
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
 
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;

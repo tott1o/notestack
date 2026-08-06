@@ -8,7 +8,7 @@ interface ImageViewerProps {
 }
 
 export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
 
   const [zoom, setZoom] = useState<number>(100);
   const [rotation, setRotation] = useState<number>(0);

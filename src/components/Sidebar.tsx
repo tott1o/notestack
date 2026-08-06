@@ -220,7 +220,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Ultra-Professional Tree Row Renderer with Connector Lines & Vivid File Format Badges
   const renderFileRow = (file: FileItem, depth: number = 0): React.ReactNode => {
-    const isActive = activeFile?.id === file.id;
+    const isActive = activeFile ? ((activeFile.fullPath && file.fullPath && activeFile.fullPath === file.fullPath) || (activeFile.path && file.path && activeFile.path === file.path) || activeFile.id === file.id) : false;
 
     if (file.type === 'folder') {
       const isExpanded = expandedFolders[file.id] ?? false;
@@ -294,7 +294,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div 
         key={file.id} 
         className={`tree-item-row ${isActive ? 'active' : ''}`}
-        onClick={() => onSelectFile(file)}
+        onClick={(e) => {
+          if (e.ctrlKey || e.metaKey) {
+            if (onOpenInNewTab) onOpenInNewTab(file);
+            else onSelectFile(file);
+          } else {
+            onSelectFile(file);
+          }
+        }}
+        onAuxClick={(e) => {
+          if (e.button === 1 && onOpenInNewTab) {
+            e.preventDefault();
+            onOpenInNewTab(file);
+          }
+        }}
         onContextMenu={(e) => handleContextMenu(e, file)}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden', flex: 1 }}>

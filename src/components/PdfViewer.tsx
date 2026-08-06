@@ -32,7 +32,7 @@ interface PdfMatch {
 export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [engineMode, setEngineMode] = useState<'canvas' | 'edge'>('canvas');
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
 
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [inputPage, setInputPage] = useState<string>('1');

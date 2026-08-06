@@ -147,7 +147,11 @@ export const TabBar: React.FC<TabBarProps> = ({
         {/* 60 FPS Chrome Browser Tab Bar with Neighbor Displacement Physics */}
         {openTabs.map((file, idx) => {
           const tabKey = file.tabId || `${file.id}_${idx}`;
-          const isActive = !isDashboardActive && activeTabKey === (file.tabId || file.id);
+          const isActive = !isDashboardActive && (
+            activeFile?.tabId 
+              ? file.tabId === activeFile.tabId 
+              : activeTabKey === (file.tabId || file.id)
+          );
           const isDragging = idx === draggingIdx;
 
           // Chrome Neighbor Tab Displacement Offset Calculation
@@ -162,6 +166,17 @@ export const TabBar: React.FC<TabBarProps> = ({
 
           const translateX = isDragging ? dragDeltaX : shiftX;
 
+          // Check if there are multiple open tabs with the exact same filename
+          const duplicateNameCount = openTabs.filter(t => t.name === file.name).length;
+          const parentFolder = (file.path && file.path.includes('/'))
+            ? file.path.split('/').filter(Boolean).slice(-2, -1)[0] || ''
+            : (file.moduleName || '');
+
+          const displayTitle = (duplicateNameCount > 1 && parentFolder)
+            ? `${file.name} (${parentFolder})`
+            : file.name;
+          const fullPathTooltip = file.fullPath || file.path || file.name;
+
           return (
             <div
               key={tabKey}
@@ -171,12 +186,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
               className={`app-tab ${isActive ? 'active' : ''}`}
-              onClick={() => {
-                if (Math.abs(dragDeltaX) < 5) {
-                  onSelectTab(file);
-                }
-              }}
-              title={`Drag horizontally to reorder: ${file.name}`}
+              title={`Drag to reorder • ${fullPathTooltip}`}
               style={{ 
                 cursor: 'pointer',
                 transform: translateX ? `translateX(${translateX}px)` : undefined,
@@ -193,7 +203,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               }}
             >
               <span className="tab-icon">{getFileIcon(file.type)}</span>
-              <span className="tab-title">{file.name}</span>
+              <span className="tab-title" title={fullPathTooltip}>{displayTitle}</span>
               <button
                 className="tab-close-btn"
                 onClick={(e) => {

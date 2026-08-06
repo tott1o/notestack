@@ -27,7 +27,7 @@ interface PptxViewerProps {
 }
 
 export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
   const savedState = useMemo(() => getFileState(fileKey), [fileKey]);
 
   const [pptxResult, setPptxResult] = useState<PPTXjsResult | null>(null);

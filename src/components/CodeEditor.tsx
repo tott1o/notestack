@@ -21,7 +21,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fileKey = file.fullPath || file.id;
+  const fileKey = file.tabId || file.fullPath || file.id;
 
   const highlightedHtml = useMemo(() => {
     return highlightCodeSyntax(code, file.extension || file.type || 'code');

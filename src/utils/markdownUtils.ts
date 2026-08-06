@@ -6,14 +6,33 @@ import { highlightCodeSyntax } from './syntaxHighlighter';
 // Standardized Markdown Renderer (GitHub Flavored Markdown & Obsidian Specs)
 const renderer = new marked.Renderer();
 
-// ─── Code Blocks (Terminal Design with macOS Dots & Gutter Numbers) ───────────
+// ─── Code Blocks (Terminal Design & Mermaid Diagram Cards) ───────────
 renderer.code = function({ text = '', lang }: { text?: string; lang?: string }) {
   const safeText = text || '';
-  const language = (lang || 'code').toUpperCase();
+  const language = (lang || 'code').toLowerCase().trim();
+
+  if (language === 'mermaid') {
+    return `
+      <div class="mermaid-diagram-card" data-mermaid="${encodeURIComponent(safeText)}">
+        <div class="mermaid-diagram-header">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
+            <span class="mermaid-diagram-title" style="font-weight: 700; font-size: 0.76rem; color: var(--primary);">MERMAID DIAGRAM</span>
+          </div>
+          <button class="copy-code-btn" data-code="${encodeURIComponent(safeText)}">
+            Copy Code
+          </button>
+        </div>
+        <div class="mermaid-container">
+          <div class="mermaid-loading" style="padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.8rem;">Rendering diagram...</div>
+        </div>
+      </div>
+    `;
+  }
+
+  const highlightedCode = highlightCodeSyntax(safeText, lang || 'code');
   const lines = safeText.split('\n');
   const lineCount = lines.length;
-  const highlightedCode = highlightCodeSyntax(safeText, lang || 'code');
-
   const lineNums = lines.map((_, i) => `<span class="code-ln">${i + 1}</span>`).join('\n');
 
   return `
@@ -26,7 +45,7 @@ renderer.code = function({ text = '', lang }: { text?: string; lang?: string }) 
         </div>
         <div class="code-terminal-left">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-          <span class="code-terminal-lang">${language}</span>
+          <span class="code-terminal-lang">${language.toUpperCase()}</span>
         </div>
         <div class="code-terminal-right">
           <span class="code-terminal-meta">${lineCount} lines</span>
@@ -290,13 +309,10 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     return `\u0000CODEBLOCK${idx}\u0000`;
   });
 
-  // 2. Process ==highlighted text== → <mark class="study-highlight">
-  processed = processed.replace(/==([^=\n]+?)==/g, '<mark class="study-highlight">$1</mark>');
-
   const mathBlocks: string[] = [];
   const mathInlines: string[] = [];
 
-  // 3. Extract Display Math $$ ... $$ → Placeholder Token
+  // 2. Extract Display Math $$ ... $$ → Placeholder Token BEFORE any superscript/subscript/footnote regexes!
   processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
     const index = mathBlocks.length;
     try {
@@ -322,7 +338,7 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     return `\nNOTESTACKMATHBLOCK${index}END\n`;
   });
 
-  // 4. Protect standalone currency values (e.g. $50,000 or $10.99 followed by space/punctuation without closing $)
+  // 3. Protect standalone currency values (e.g. $50,000 or $10.99 followed by space/punctuation without closing $)
   const currencyPlaceholders: string[] = [];
   processed = processed.replace(/(^|[\s(])\$(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+)(?=$|[\s.,!?;:)]|\s)/g, (_match, prefix, amount) => {
     const idx = currencyPlaceholders.length;
@@ -330,7 +346,7 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     return `${prefix}\u0000CURRENCY${idx}\u0000`;
   });
 
-  // 5. Extract Inline Math $ ... $ (including numbers like $35$, $75$, equations $n=6$, and symbols \to)
+  // 4. Extract Inline Math $ ... $ (including numbers like $35$, $75$, equations $n=6$, and symbols \to)
   processed = processed.replace(/(^|[^\\\$])\$([^\s\$\n](?:[^\$\n]*?[^\s\$\n])?)\$/g, (_match, prefix, math) => {
     const index = mathInlines.length;
     try {
@@ -347,7 +363,24 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     return currencyPlaceholders[parseInt(id, 10)] || '';
   });
 
-  // 5. Restore Protected Code Blocks before Marked parses Markdown
+  // 5. Process Footnote Definitions [^1]: Explanation Text
+  const footnotes: { id: string; content: string }[] = [];
+  processed = processed.replace(/^\[\^([^\]]+)\]:\s*(.+)$/gm, (_, id, content) => {
+    footnotes.push({ id, content: content.trim() });
+    return '';
+  });
+
+  // 6. Process Inline Footnote References [^1]
+  processed = processed.replace(/\[\^([^\]]+)\]/g, (_, id) => {
+    return `<sup class="footnote-ref-wrap"><a href="#fn-${id}" id="fnref-${id}" class="footnote-ref">[${id}]</a></sup>`;
+  });
+
+  // 7. Process Superscript ^text^ & Subscript ~text~ & Highlight ==text== (Now 100% safe from LaTeX formulas!)
+  processed = processed.replace(/\^([^\^\n]+?)\^/g, '<sup>$1</sup>');
+  processed = processed.replace(/(^|[^~])~([^~\n]+?)~(?!~)/g, '$1<sub>$2</sub>');
+  processed = processed.replace(/==([^=\n]+?)==/g, '<mark class="study-highlight">$1</mark>');
+
+  // Restore Protected Code Blocks before Marked parses Markdown
   processed = processed.replace(/\u0000CODEBLOCK(\d+)\u0000/g, (_, id) => {
     return codePlaceholders[parseInt(id, 10)] || '';
   });
@@ -360,17 +393,36 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     rawHtml = `<pre>${processed}</pre>`;
   }
 
-  // 6. Restore Display Math Blocks
+  // Restore Display Math Blocks
   rawHtml = rawHtml.replace(/<p>\s*NOTESTACKMATHBLOCK(\d+)END\s*<\/p>|NOTESTACKMATHBLOCK(\d+)END/g, (_, id1, id2) => {
     const idx = parseInt(id1 !== undefined ? id1 : id2, 10);
     return mathBlocks[idx] || '';
   });
 
-  // 7. Restore Inline Math
+  // Restore Inline Math
   rawHtml = rawHtml.replace(/NOTESTACKMATHINLINE(\d+)END/g, (_, id) => {
     const idx = parseInt(id, 10);
     return mathInlines[idx] || '';
   });
+
+  // Append Footnotes section if footnotes exist
+  if (footnotes.length > 0) {
+    const fnItems = footnotes.map(fn => `
+      <li id="fn-${fn.id}" class="footnote-item">
+        <span class="footnote-text">${fn.content}</span>
+        <a href="#fnref-${fn.id}" class="footnote-backref" title="Back to content">↩</a>
+      </li>
+    `).join('');
+    rawHtml += `
+      <hr class="solid-separator" />
+      <section class="footnotes-section">
+        <h4 class="footnotes-title">Footnotes</h4>
+        <ol class="footnotes-list">
+          ${fnItems}
+        </ol>
+      </section>
+    `;
+  }
 
   if (bionicMode) {
     rawHtml = applyBionicReading(rawHtml);

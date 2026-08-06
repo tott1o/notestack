@@ -96,6 +96,7 @@ declare global {
       createNewFile: (parentPath: string, fileName: string, content: string) => Promise<any>;
       createNewFolder: (parentPath: string, folderName: string) => Promise<any>;
       openExternalFile: (filePath: string) => Promise<string>;
+      openExternalUrl: (url: string) => Promise<boolean>;
       deleteItem: (itemPath: string) => Promise<boolean>;
       renameItem: (oldPath: string, newName: string) => Promise<{ success: boolean; newPath?: string; newName?: string; error?: string }>;
     };

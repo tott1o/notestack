@@ -262,14 +262,14 @@ export function App() {
     }
   };
 
-  const handleOpenInNewTab = useCallback(async (file: FileItem) => {
-    // Skip disk read if content is already in memory
-    const loadedFile = (file.content || file.arrayBuffer || file.url) 
-      ? file 
-      : await ensureFileContentLoaded(file);
-    const uniqueTabId = `${loadedFile.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const handleOpenInNewTab = useCallback((file: FileItem) => {
+    if (!file) return;
+    const uniqueTabId = file.tabId 
+      ? `${file.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+      : `${file.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
     const tabInstance: FileItem = {
-      ...loadedFile,
+      ...file,
       tabId: uniqueTabId
     };
     
@@ -286,6 +286,15 @@ export function App() {
       return next;
     });
     setViewMode('preview');
+
+    if (!tabInstance.content && !tabInstance.arrayBuffer && !tabInstance.url) {
+      ensureFileContentLoaded(tabInstance).then(loaded => {
+        if (loaded && (loaded.content || loaded.arrayBuffer || loaded.url)) {
+          setActiveFile(prev => (prev && prev.tabId === uniqueTabId) ? { ...prev, ...loaded } : prev);
+          setOpenTabs(prev => prev.map(t => t.tabId === uniqueTabId ? { ...t, ...loaded } : t));
+        }
+      });
+    }
   }, [splitCount, activePaneIdx]);
 
   // Global Keyboard Shortcuts: Ctrl+D (Duplicate Tab) & Ctrl+P (Quick Vault File Search) & Ctrl+Shift+A (AI Chat)
@@ -308,32 +317,46 @@ export function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [activeFile, handleOpenInNewTab]);
 
-  const handleSelectFile = async (file: FileItem) => {
-    const loadedFile = (file.content || file.arrayBuffer || file.url) 
-      ? file 
-      : await ensureFileContentLoaded(file);
+  const handleSelectFile = useCallback((file: FileItem) => {
+    if (!file) return;
 
-    let activeTabInstance: FileItem = loadedFile;
+    // 1. If file object has a specific tabId (e.g. clicked directly from TabBar), match strictly by tabId!
+    let targetTab: FileItem | undefined;
 
-    setOpenTabs(prev => {
-      const existingTab = prev.find(t => 
-        t.id === loadedFile.id || 
-        (t.fullPath && loadedFile.fullPath && t.fullPath === loadedFile.fullPath) ||
-        (t.path && loadedFile.path && t.path === loadedFile.path) ||
-        t.name === loadedFile.name
+    if (file.tabId) {
+      targetTab = openTabs.find(t => t.tabId === file.tabId);
+    }
+
+    // 2. If clicked from Sidebar (no tabId): check if activeFile is already a tab for this file
+    if (!targetTab && activeFile && (
+      (activeFile.fullPath && file.fullPath && activeFile.fullPath === file.fullPath) ||
+      (activeFile.path && file.path && activeFile.path === file.path) ||
+      activeFile.id === file.id
+    )) {
+      targetTab = activeFile;
+    }
+
+    // 3. Otherwise check if ANY open tab matches fullPath/path/id
+    if (!targetTab) {
+      targetTab = openTabs.find(t => 
+        (t.fullPath && file.fullPath && t.fullPath === file.fullPath) ||
+        (t.path && file.path && t.path === file.path) ||
+        t.id === file.id
       );
+    }
 
-      if (existingTab) {
-        activeTabInstance = { ...existingTab, content: loadedFile.content ?? existingTab.content };
-        return prev.map(t => (t.tabId || t.id) === (activeTabInstance.tabId || activeTabInstance.id) ? activeTabInstance : t);
-      }
+    // 4. If no open tab exists, assign a unique tabId to this file for openTabs
+    const finalTab: FileItem = targetTab || {
+      ...file,
+      tabId: file.tabId || `${file.id}_tab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+    };
 
-      return [...prev, loadedFile];
-    });
+    const targetKey = finalTab.tabId!;
 
-    setActiveFile(activeTabInstance);
-    
-    // In Single View mode, always update Pane 0 and set activePaneIdx = 0
+    // 5. Synchronous instant active file selection (0ms delay)
+    setActiveFile(finalTab);
+
+    // 6. Update target pane ID instantly
     const targetPane = splitCount === 1 ? 0 : activePaneIdx;
     if (splitCount === 1) {
       setActivePaneIdx(0);
@@ -341,11 +364,33 @@ export function App() {
 
     setPaneActiveFileIds(prev => {
       const next = [...prev];
-      next[targetPane] = activeTabInstance.tabId || activeTabInstance.id;
+      next[targetPane] = targetKey;
       return next;
     });
-    setViewMode('preview');
-  };
+
+    if (viewMode === 'dashboard') {
+      setViewMode('preview');
+    }
+
+    // 7. Ensure file is present in openTabs
+    setOpenTabs(prev => {
+      const exists = prev.some(t => t.tabId === targetKey);
+      if (exists) {
+        return prev;
+      }
+      return [...prev, finalTab];
+    });
+
+    // 8. Asynchronously load content in background if missing
+    if (!finalTab.content && !finalTab.arrayBuffer && !finalTab.url) {
+      ensureFileContentLoaded(finalTab).then(loaded => {
+        if (loaded && (loaded.content || loaded.arrayBuffer || loaded.url)) {
+          setActiveFile(prev => (prev && prev.tabId === targetKey) ? { ...prev, ...loaded } : prev);
+          setOpenTabs(prev => prev.map(t => t.tabId === targetKey ? { ...t, ...loaded } : t));
+        }
+      });
+    }
+  }, [openTabs, activeFile, splitCount, activePaneIdx, viewMode]);
 
   const handleChangeSplitCount = (count: SplitLayoutMode) => {
     if (count === 1) {
@@ -509,6 +554,14 @@ export function App() {
     if (!activeFile) return;
     const updated = { ...activeFile, content: newContent };
     setActiveFile(updated);
+
+    // Sync content across any duplicate open tabs of the same file
+    setOpenTabs(prev => prev.map(t => {
+      const isSameFile = (t.fullPath && activeFile.fullPath && t.fullPath === activeFile.fullPath) ||
+                         (t.path && activeFile.path && t.path === activeFile.path) ||
+                         t.id === activeFile.id;
+      return isSameFile ? { ...t, content: newContent } : t;
+    }));
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -970,13 +1023,16 @@ export function App() {
 
 
   const renderFileViewer = (file: FileItem) => {
+    const key = file.tabId || file.id;
+
     switch (file.type) {
       case 'md':
         return (
           <MarkdownViewer 
+            key={key}
             file={file}
             onContentChange={(c) => {
-              if (activeFile?.id === file.id) handleContentChange(c);
+              if (activeFile?.id === file.id || activeFile?.tabId === file.tabId) handleContentChange(c);
             }}
             settings={settings}
             onToggleBionic={() => setSettings(prev => ({ ...prev, bionicReading: !prev.bionicReading }))}
@@ -987,29 +1043,32 @@ export function App() {
       case 'code':
         return (
           <CodeEditor 
+            key={key}
             file={file} 
             onContentChange={(c) => {
-              if (activeFile?.id === file.id) handleContentChange(c);
+              if (activeFile?.id === file.id || activeFile?.tabId === file.tabId) handleContentChange(c);
             }} 
           />
         );
       case 'csv':
         return (
           <CsvViewer 
+            key={key}
             file={file} 
             onContentChange={(c) => {
-              if (activeFile?.id === file.id) handleContentChange(c);
+              if (activeFile?.id === file.id || activeFile?.tabId === file.tabId) handleContentChange(c);
             }} 
           />
         );
       case 'image':
         if (file.extension?.toLowerCase() === 'svg' || file.name.toLowerCase().endsWith('.svg')) {
-          return <SvgViewer file={file} />;
+          return <SvgViewer key={key} file={file} />;
         }
-        return <ImageViewer file={file} />;
+        return <ImageViewer key={key} file={file} />;
       case 'video':
         return (
           <VideoViewer 
+            key={key}
             file={file} 
             onExportNotesToMarkdown={(mdText) => {
               const noteTitle = `VideoNotes-${file.name.replace(/\.[^/.]+$/, '')}.md`;
@@ -1018,14 +1077,14 @@ export function App() {
           />
         );
       case 'pdf':
-        return <PdfViewer file={file} />;
+        return <PdfViewer key={key} file={file} />;
       case 'docx':
-        return <DocxViewer file={file} />;
+        return <DocxViewer key={key} file={file} />;
       case 'pptx':
-        return <PptxViewer file={file} settings={settings} />;
+        return <PptxViewer key={key} file={file} settings={settings} />;
       default:
         return (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+          <div key={key} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             Unsupported file type ({file.extension}).
           </div>
         );
@@ -1036,14 +1095,14 @@ export function App() {
     let targetFileId = paneActiveFileIds[paneIdx];
     if (!targetFileId) {
       if (paneIdx === 0) {
-        targetFileId = activeFile ? activeFile.id : 'dashboard';
+        targetFileId = activeFile ? (activeFile.tabId || activeFile.id) : 'dashboard';
       } else {
         const fallback = openTabs[paneIdx] || openTabs[0];
-        targetFileId = fallback ? fallback.id : 'dashboard';
+        targetFileId = fallback ? (fallback.tabId || fallback.id) : 'dashboard';
       }
     }
 
-    const assignedFile = targetFileId === 'dashboard' ? null : openTabs.find(t => (t.tabId || t.id) === targetFileId || t.id === targetFileId);
+    const assignedFile = targetFileId === 'dashboard' ? null : openTabs.find(t => (t.tabId || t.id) === targetFileId);
     const isPaneFocused = activePaneIdx === paneIdx;
 
     return (
