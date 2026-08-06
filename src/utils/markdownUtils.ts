@@ -91,50 +91,62 @@ renderer.hr = function() {
   return `<hr class="solid-separator" />`;
 };
 
-// ─── Callout & Blockquote Parser (Bulletproof Separation) ───────────────────
+// ─── Callout & Blockquote Parser (Obsidian & GitHub Flavored Spec) ───────────
+// marked v18 passes raw text to renderer.blockquote, NOT HTML-wrapped.
+// e.g. text = "[!NOTE]\nThis is a note callout." (no <p> tags)
 renderer.blockquote = function({ text }: { text: string }) {
-  const safeText = text || '';
+  const safeText = (text || '').trim();
 
-  // Matches [!TYPE] or [!TYPE] Custom Title at start of blockquote HTML
-  const calloutRegex = /^\s*<p>\s*\[!([A-Za-z]+)\](?:\s+([^\n<]+))?(?:<br\s*\/?>|\n)?([\s\S]*)$/i;
-  const match = safeText.match(calloutRegex);
+  // Match [!TYPE] at the very start of the raw text (marked v18 gives us raw text, not HTML)
+  // Also match if marked has already wrapped it in <p> tags (fallback for edge cases)
+  const rawCalloutRegex = /^\s*(?:<p>\s*)?\[!([A-Za-z]+)\](?:\s*([^\n<]*))?(?:<\/p>)?\s*/i;
+  const match = safeText.match(rawCalloutRegex);
 
   if (match) {
     const rawType = match[1];
-    const customTitle = match[2] ? match[2].trim() : '';
-    const bodyContent = match[3] ? match[3].trim() : '';
+    const config = getCalloutConfig(rawType);
 
-    const lowerType = rawType.toLowerCase();
-    const validTypes = ['note', 'important', 'tip', 'warning', 'caution', 'definition', 'theorem', 'formula', 'example', 'summary'];
+    if (config) {
+      // Extract the custom title (text on the same line after [!TYPE]) and body content
+      const sameLineText = (match[2] || '').trim();
+      
+      // Everything after the matched [!TYPE] line is the body
+      let bodyRaw = safeText.substring(match[0].length).trim();
+      
+      // Determine display title and body
+      let displayTitle = config.title;
+      let bodyContent = '';
 
-    if (validTypes.includes(lowerType)) {
-      const config = getCalloutConfig(lowerType);
-      const displayTitle = customTitle || config.title;
-
-      let formattedBody = bodyContent;
-      if (formattedBody.startsWith('</p>')) {
-        formattedBody = formattedBody.replace(/^<\/p>\s*/, '');
-      } else if (formattedBody && !formattedBody.startsWith('<p>')) {
-        formattedBody = `<p>${formattedBody}`;
+      if (bodyRaw.length > 0) {
+        // Multi-line callout: [!TYPE] on line 1, body on subsequent lines
+        if (sameLineText) {
+          displayTitle = sameLineText;
+        }
+        bodyContent = bodyRaw;
+      } else if (sameLineText) {
+        // Single-line callout: [!TYPE] Some text all on one line
+        bodyContent = sameLineText;
       }
-      if (formattedBody && !formattedBody.endsWith('</p>')) {
-        formattedBody = `${formattedBody}</p>`;
-      }
-      if (!formattedBody) {
-        formattedBody = '<p></p>';
+
+      // Strip leading <p> / </p> wrappers from body if present
+      bodyContent = bodyContent.replace(/^\s*<p>\s*/i, '').replace(/\s*<\/p>\s*$/i, '').trim();
+
+      // Wrap body in <p> if it's plain text
+      if (bodyContent && !bodyContent.startsWith('<p>') && !bodyContent.startsWith('<ul') && !bodyContent.startsWith('<ol') && !bodyContent.startsWith('<div') && !bodyContent.startsWith('<h')) {
+        bodyContent = `<p>${bodyContent}</p>`;
       }
 
       return `
-        <div class="study-callout study-callout-${lowerType}">
+        <div class="study-callout study-callout-${config.typeKey}" style="--callout-color: ${config.borderColor}; --callout-bg: ${config.bgColor}; --callout-border: ${config.cardBorder};">
           <div class="study-callout-bar" style="background: ${config.borderColor};"></div>
           <div class="study-callout-content">
             <div class="study-callout-header">
-              <span class="study-callout-icon">${config.icon}</span>
+              <div class="study-callout-icon-wrapper" style="color: ${config.titleColor}; background: ${config.iconBg};">
+                ${config.icon}
+              </div>
               <span class="study-callout-title" style="color: ${config.titleColor};">${displayTitle}</span>
             </div>
-            <div class="study-callout-body">
-              ${formattedBody}
-            </div>
+            ${bodyContent ? `<div class="study-callout-body">${bodyContent}</div>` : ''}
           </div>
         </div>
       `;
@@ -375,10 +387,15 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
     return `<sup class="footnote-ref-wrap"><a href="#fn-${id}" id="fnref-${id}" class="footnote-ref">[${id}]</a></sup>`;
   });
 
-  // 7. Process Superscript ^text^ & Subscript ~text~ & Highlight ==text== (Now 100% safe from LaTeX formulas!)
+  // Process Superscript ^text^ & Subscript ~text~ & Highlight ==text== (Now 100% safe from LaTeX formulas!)
   processed = processed.replace(/\^([^\^\n]+?)\^/g, '<sup>$1</sup>');
   processed = processed.replace(/(^|[^~])~([^~\n]+?)~(?!~)/g, '$1<sub>$2</sub>');
   processed = processed.replace(/==([^=\n]+?)==/g, '<mark class="study-highlight">$1</mark>');
+
+  // Normalize standalone callout lines `[!TYPE] text` without leading `>` into blockquotes `> [!TYPE] text`
+  processed = processed.replace(/^([ \t]*)\[!([A-Za-z]+)\](?:\s+([^\n]+))?/gm, (_m, indent, type, text) => {
+    return `${indent}> [!${type}]${text ? ' ' + text : ''}`;
+  });
 
   // Restore Protected Code Blocks before Marked parses Markdown
   processed = processed.replace(/\u0000CODEBLOCK(\d+)\u0000/g, (_, id) => {
@@ -431,80 +448,161 @@ export function renderMarkdownToHtml(markdownText: string, bionicMode: boolean =
   return rawHtml;
 }
 
-function getCalloutConfig(type: string): { icon: string; title: string; borderColor: string; titleColor: string } {
-  switch (type.toLowerCase()) {
-    case 'important':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>', 
-        title: 'IMPORTANT CONCEPT', 
-        borderColor: 'var(--accent-rose)', 
-        titleColor: 'var(--accent-rose)' 
-      };
-    case 'tip':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path><path d="M9 18h6"></path><path d="M10 22h4"></path></svg>', 
-        title: 'KEY INSIGHT & TIP', 
-        borderColor: 'var(--accent-emerald)', 
-        titleColor: 'var(--accent-emerald)' 
-      };
-    case 'warning':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>', 
-        title: 'WARNING', 
-        borderColor: 'var(--accent-amber)', 
-        titleColor: 'var(--accent-amber)' 
-      };
-    case 'caution':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>', 
-        title: 'CRITICAL CAUTION', 
-        borderColor: 'var(--accent-rose)', 
-        titleColor: 'var(--accent-rose)' 
-      };
-    case 'definition':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>', 
-        title: 'DEFINITION', 
-        borderColor: 'var(--accent-cyan)', 
-        titleColor: 'var(--accent-cyan)' 
-      };
-    case 'theorem':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="m16.2 7.8-2 6.3-6.4 2.1 2-6.3z"></path></svg>', 
-        title: 'THEOREM & RULE', 
-        borderColor: 'var(--accent-purple)', 
-        titleColor: 'var(--accent-purple)' 
-      };
-    case 'formula':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M8 12h8"></path><path d="M12 8v8"></path></svg>', 
-        title: 'FORMULA', 
-        borderColor: 'var(--primary)', 
-        titleColor: 'var(--primary)' 
-      };
-    case 'example':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 2v7.5"></path><path d="M14 2v6"></path><path d="M8.5 2h7"></path><path d="M14 9.5a5 5 0 1 1-4 0v-7.5"></path></svg>', 
-        title: 'WORKED EXAMPLE', 
-        borderColor: 'var(--accent-emerald)', 
-        titleColor: 'var(--accent-emerald)' 
-      };
-    case 'summary':
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>', 
-        title: 'SUMMARY', 
-        borderColor: 'var(--primary)', 
-        titleColor: 'var(--primary)' 
-      };
-    case 'note':
-    default:
-      return { 
-        icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>', 
-        title: 'NOTE', 
-        borderColor: 'var(--primary)', 
-        titleColor: 'var(--primary)' 
-      };
+interface CalloutConfig {
+  typeKey: string;
+  icon: string;
+  title: string;
+  borderColor: string;
+  titleColor: string;
+  bgColor: string;
+  cardBorder: string;
+  iconBg: string;
+}
+
+function getCalloutConfig(type: string): CalloutConfig {
+  const t = type.toLowerCase();
+  
+  if (['caution', 'danger', 'error', 'failure', 'bug'].includes(t)) {
+    return {
+      typeKey: 'caution',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+      title: t === 'bug' ? 'BUG DETECTED' : 'CRITICAL CAUTION',
+      borderColor: 'var(--accent-rose, #f43f5e)',
+      titleColor: 'var(--accent-rose, #f43f5e)',
+      bgColor: 'rgba(244, 63, 94, 0.08)',
+      cardBorder: 'rgba(244, 63, 94, 0.22)',
+      iconBg: 'rgba(244, 63, 94, 0.14)'
+    };
   }
+
+  if (['warning', 'attention'].includes(t)) {
+    return {
+      typeKey: 'warning',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
+      title: 'WARNING',
+      borderColor: 'var(--accent-amber, #f59e0b)',
+      titleColor: 'var(--accent-amber, #f59e0b)',
+      bgColor: 'rgba(245, 158, 11, 0.08)',
+      cardBorder: 'rgba(245, 158, 11, 0.22)',
+      iconBg: 'rgba(245, 158, 11, 0.14)'
+    };
+  }
+
+  if (['tip', 'hint', 'insight'].includes(t)) {
+    return {
+      typeKey: 'tip',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path><path d="M9 18h6"></path><path d="M10 22h4"></path></svg>`,
+      title: 'KEY INSIGHT & TIP',
+      borderColor: 'var(--accent-emerald, #10b981)',
+      titleColor: 'var(--accent-emerald, #10b981)',
+      bgColor: 'rgba(16, 185, 129, 0.08)',
+      cardBorder: 'rgba(16, 185, 129, 0.22)',
+      iconBg: 'rgba(16, 185, 129, 0.14)'
+    };
+  }
+
+  if (['important', 'check', 'done'].includes(t)) {
+    return {
+      typeKey: 'important',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>`,
+      title: 'IMPORTANT CONCEPT',
+      borderColor: 'var(--accent-purple, #a855f7)',
+      titleColor: 'var(--accent-purple, #a855f7)',
+      bgColor: 'rgba(168, 85, 247, 0.08)',
+      cardBorder: 'rgba(168, 85, 247, 0.22)',
+      iconBg: 'rgba(168, 85, 247, 0.14)'
+    };
+  }
+
+  if (['definition', 'abstract', 'summary', 'tldr'].includes(t)) {
+    return {
+      typeKey: 'definition',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`,
+      title: t.toUpperCase(),
+      borderColor: 'var(--accent-cyan, #06b6d4)',
+      titleColor: 'var(--accent-cyan, #06b6d4)',
+      bgColor: 'rgba(6, 182, 212, 0.08)',
+      cardBorder: 'rgba(6, 182, 212, 0.22)',
+      iconBg: 'rgba(6, 182, 212, 0.14)'
+    };
+  }
+
+  if (['theorem', 'proposition', 'proof'].includes(t)) {
+    return {
+      typeKey: 'theorem',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m16.2 7.8-2 6.3-6.4 2.1 2-6.3z"></path></svg>`,
+      title: 'THEOREM & RULE',
+      borderColor: 'var(--accent-purple, #8b5cf6)',
+      titleColor: 'var(--accent-purple, #8b5cf6)',
+      bgColor: 'rgba(139, 92, 246, 0.08)',
+      cardBorder: 'rgba(139, 92, 246, 0.22)',
+      iconBg: 'rgba(139, 92, 246, 0.14)'
+    };
+  }
+
+  if (['formula', 'math'].includes(t)) {
+    return {
+      typeKey: 'formula',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M8 12h8"></path><path d="M12 8v8"></path></svg>`,
+      title: 'FORMULA',
+      borderColor: 'var(--primary, #3b82f6)',
+      titleColor: 'var(--primary, #3b82f6)',
+      bgColor: 'rgba(59, 130, 246, 0.08)',
+      cardBorder: 'rgba(59, 130, 246, 0.22)',
+      iconBg: 'rgba(59, 130, 246, 0.14)'
+    };
+  }
+
+  if (['example'].includes(t)) {
+    return {
+      typeKey: 'example',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.5"></path><path d="M14 2v6"></path><path d="M8.5 2h7"></path><path d="M14 9.5a5 5 0 1 1-4 0v-7.5"></path></svg>`,
+      title: 'WORKED EXAMPLE',
+      borderColor: 'var(--accent-emerald, #10b981)',
+      titleColor: 'var(--accent-emerald, #10b981)',
+      bgColor: 'rgba(16, 185, 129, 0.08)',
+      cardBorder: 'rgba(16, 185, 129, 0.22)',
+      iconBg: 'rgba(16, 185, 129, 0.14)'
+    };
+  }
+
+  if (['question', 'faq', 'help'].includes(t)) {
+    return {
+      typeKey: 'question',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
+      title: 'QUESTION / FAQ',
+      borderColor: 'var(--accent-amber, #eab308)',
+      titleColor: 'var(--accent-amber, #eab308)',
+      bgColor: 'rgba(234, 179, 8, 0.08)',
+      cardBorder: 'rgba(234, 179, 8, 0.22)',
+      iconBg: 'rgba(234, 179, 8, 0.14)'
+    };
+  }
+
+  if (['quote', 'cite'].includes(t)) {
+    return {
+      typeKey: 'quote',
+      icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>`,
+      title: 'QUOTE',
+      borderColor: 'var(--text-muted, #64748b)',
+      titleColor: 'var(--text-muted, #64748b)',
+      bgColor: 'rgba(100, 116, 139, 0.08)',
+      cardBorder: 'rgba(100, 116, 139, 0.22)',
+      iconBg: 'rgba(100, 116, 139, 0.14)'
+    };
+  }
+
+  // Default: Note / Info
+  return {
+    typeKey: 'note',
+    icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`,
+    title: 'NOTE',
+    borderColor: 'var(--primary, #3b82f6)',
+    titleColor: 'var(--primary, #3b82f6)',
+    bgColor: 'rgba(59, 130, 246, 0.08)',
+    cardBorder: 'rgba(59, 130, 246, 0.22)',
+    iconBg: 'rgba(59, 130, 246, 0.14)'
+  };
 }
 
 export function getTaskProgress(markdownText: string): { total: number; completed: number; percent: number } {

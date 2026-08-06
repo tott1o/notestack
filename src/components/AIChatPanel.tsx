@@ -35,13 +35,23 @@ import mermaid from 'mermaid';
 export function applySearchReplaceBlocks(originalContent: string, searchReplaceText: string): string {
   if (!originalContent || !searchReplaceText) return originalContent;
 
-  // Regex to extract <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE blocks
-  const blockRegex = /<<<<<<<\s*SEARCH\s*\n([\s\S]*?)\n?=======\s*\n([\s\S]*?)\n?>>>>>>>\s*REPLACE/g;
-  let matches = Array.from(searchReplaceText.matchAll(blockRegex));
+  // Supports multiple LLM block formats:
+  // 1. <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE
+  // 2. <<< SEARCH ... === ... >>> REPLACE
+  // 3. ```search_replace ... ======= ... ```
+  const blockRegexes = [
+    /<<<<<<<\s*SEARCH\s*\n([\s\S]*?)\n?=======\s*\n([\s\S]*?)\n?>>>>>>>\s*REPLACE?/gi,
+    /<<<\s*SEARCH\s*\n([\s\S]*?)\n?===\s*\n([\s\S]*?)\n?>>>\s*REPLACE?/gi,
+    /```(?:search_replace|diff|replace)\n([\s\S]*?)\n=======\n([\s\S]*?)\n```/gi
+  ];
 
-  if (matches.length === 0) {
-    const altRegex = /<<<\s*SEARCH\s*\n([\s\S]*?)\n?===\s*\n([\s\S]*?)\n?>>>\s*REPLACE/g;
-    matches = Array.from(searchReplaceText.matchAll(altRegex));
+  let matches: RegExpMatchArray[] = [];
+  for (const regex of blockRegexes) {
+    const found = Array.from(searchReplaceText.matchAll(regex));
+    if (found.length > 0) {
+      matches = found;
+      break;
+    }
   }
 
   if (matches.length === 0) {
@@ -56,13 +66,13 @@ export function applySearchReplaceBlocks(originalContent: string, searchReplaceT
 
     if (!searchTarget.trim()) continue;
 
-    // 1. Try exact string match
+    // Strategy 1: Exact string match
     if (updatedContent.includes(searchTarget)) {
       updatedContent = updatedContent.replace(searchTarget, replacementText);
       continue;
     }
 
-    // 2. Try normalized line-ending match (\r\n -> \n)
+    // Strategy 2: Normalized line endings (\r\n -> \n)
     const normOriginal = updatedContent.replace(/\r\n/g, '\n');
     const normSearch = searchTarget.replace(/\r\n/g, '\n');
     const normReplace = replacementText.replace(/\r\n/g, '\n');
@@ -72,7 +82,7 @@ export function applySearchReplaceBlocks(originalContent: string, searchReplaceT
       continue;
     }
 
-    // 3. Try line-by-line trimmed match
+    // Strategy 3: Trimmed line-by-line matching
     const origLines = updatedContent.split('\n');
     const searchLines = normSearch.split('\n').map(l => l.trimEnd());
     
@@ -94,6 +104,36 @@ export function applySearchReplaceBlocks(originalContent: string, searchReplaceT
 
       if (foundIndex !== -1) {
         origLines.splice(foundIndex, searchLines.length, ...normReplace.split('\n'));
+        updatedContent = origLines.join('\n');
+        continue;
+      }
+    }
+
+    // Strategy 4: Flexible Whitespace (ignore leading & trailing spaces per line)
+    const searchLinesTrimmed = normSearch.split('\n').map(l => l.trim()).filter(Boolean);
+    if (searchLinesTrimmed.length > 0) {
+      let foundIndex = -1;
+      let matchedCount = 0;
+
+      for (let i = 0; i < origLines.length; i++) {
+        if (origLines[i].trim() === searchLinesTrimmed[0]) {
+          let match = true;
+          for (let j = 1; j < searchLinesTrimmed.length; j++) {
+            if (i + j >= origLines.length || origLines[i + j].trim() !== searchLinesTrimmed[j]) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            foundIndex = i;
+            matchedCount = searchLinesTrimmed.length;
+            break;
+          }
+        }
+      }
+
+      if (foundIndex !== -1) {
+        origLines.splice(foundIndex, matchedCount, ...normReplace.split('\n'));
         updatedContent = origLines.join('\n');
       }
     }

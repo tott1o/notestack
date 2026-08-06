@@ -327,7 +327,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
       if (!isRestoringRef.current && !isDuplicateTab) {
         saveFileState(fileKey, { scrollTop, pageNumber: activePage });
       }
-    }, 200);
+    }, 30000);
   };
 
   const handlePageJump = (targetPage: number) => {
