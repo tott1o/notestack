@@ -305,7 +305,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       });
     };
 
-    processItems(mainDir.files, 'root-nucleus', 1, 0, Math.PI * 2);
+    // Shift initial graph layout by 90 degrees (Math.PI / 2)
+    processItems(mainDir.files, 'root-nucleus', 1, Math.PI / 2, Math.PI / 2 + Math.PI * 2);
 
     return { nodes: nodeList, connections: connList };
   }, [mainDir.name, mainDir.files]);
