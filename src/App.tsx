@@ -229,6 +229,47 @@ export function App() {
     document.body.setAttribute('data-theme', settings.theme);
   }, [settings.theme]);
 
+  // Real-time live synchronization for file system changes
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const unSubVault = window.electronAPI.onVaultUpdated?.((updatedDir) => {
+      setMainDir(prev => ({
+        ...prev,
+        name: updatedDir.name || prev.name,
+        path: updatedDir.path || prev.path,
+        subDirectories: updatedDir.subDirectories || prev.subDirectories,
+        files: updatedDir.files || prev.files,
+        allVaults: updatedDir.allVaults || prev.allVaults
+      }));
+    });
+
+    const unSubFile = window.electronAPI.onFileChanged?.(({ fullPath, content }) => {
+      if (!fullPath) return;
+      const norm = (p?: string) => (p || '').replace(/\\/g, '/').toLowerCase();
+      const targetNorm = norm(fullPath);
+
+      setOpenTabs(prev => prev.map(tab => {
+        if (norm(tab.fullPath) === targetNorm || norm(tab.path) === targetNorm) {
+          return { ...tab, content };
+        }
+        return tab;
+      }));
+
+      setActiveFile(prev => {
+        if (prev && (norm(prev.fullPath) === targetNorm || norm(prev.path) === targetNorm)) {
+          return { ...prev, content };
+        }
+        return prev;
+      });
+    });
+
+    return () => {
+      if (unSubVault) unSubVault();
+      if (unSubFile) unSubFile();
+    };
+  }, []);
+
   const handleSelectMainDirectory = async (switchPath?: string) => {
     try {
       const selected = await openMainDirectoryFromDisk(switchPath);
@@ -1029,7 +1070,7 @@ export function App() {
 
 
 
-  const renderFileViewer = (file: FileItem) => {
+  const renderFileViewer = (file: FileItem, isTabActive: boolean = true) => {
     const key = file.tabId || file.id;
 
     switch (file.type) {
@@ -1038,6 +1079,7 @@ export function App() {
           <MarkdownViewer 
             key={key}
             file={file}
+            isActive={isTabActive}
             onContentChange={(c) => {
               if (activeFile?.id === file.id || activeFile?.tabId === file.tabId) handleContentChange(c);
             }}
@@ -1214,7 +1256,22 @@ export function App() {
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
           {/* Dashboard view when no active file or dashboard selected */}
-          <div style={{ display: (!assignedFile || targetFileId === 'dashboard') ? 'flex' : 'none', flex: 1, width: '100%', height: '100%', flexDirection: 'column' }}>
+          <div 
+            style={{ 
+              display: 'flex', 
+              flex: 1, 
+              width: '100%', 
+              height: '100%', 
+              flexDirection: 'column',
+              position: 'absolute',
+              inset: 0,
+              overflow: 'hidden',
+              opacity: (!assignedFile || targetFileId === 'dashboard') ? 1 : 0,
+              pointerEvents: (!assignedFile || targetFileId === 'dashboard') ? 'auto' : 'none',
+              visibility: (!assignedFile || targetFileId === 'dashboard') ? 'visible' : 'hidden',
+              zIndex: (!assignedFile || targetFileId === 'dashboard') ? 10 : 1
+            }}
+          >
             <DashboardOverview 
               mainDir={mainDir}
               onSelectMainDirectory={handleSelectMainDirectory}
@@ -1225,26 +1282,30 @@ export function App() {
             />
           </div>
 
-          {/* Persistent mounted tabs with 0ms DOM visibility switching */}
+          {/* Persistent mounted tabs with 0ms DOM visibility switching & layout preservation */}
           {openTabs.map(tab => {
             const tabKey = tab.tabId || tab.id;
-            const isTabActive = targetFileId !== 'dashboard' && assignedFile && (assignedFile.tabId || assignedFile.id) === tabKey;
+            const isTabActive = Boolean(targetFileId !== 'dashboard' && assignedFile && (assignedFile.tabId || assignedFile.id) === tabKey);
 
             return (
               <div
                 key={tabKey}
                 style={{
-                  display: isTabActive ? 'flex' : 'none',
+                  display: 'flex',
                   flexDirection: 'column',
                   flex: 1,
                   width: '100%',
                   height: '100%',
                   position: 'absolute',
                   inset: 0,
-                  overflow: 'hidden'
+                  overflow: 'hidden',
+                  opacity: isTabActive ? 1 : 0,
+                  pointerEvents: isTabActive ? 'auto' : 'none',
+                  visibility: isTabActive ? 'visible' : 'hidden',
+                  zIndex: isTabActive ? 10 : 1
                 }}
               >
-                {renderFileViewer(tab)}
+                {renderFileViewer(tab, isTabActive)}
               </div>
             );
           })}
@@ -1253,42 +1314,39 @@ export function App() {
     );
   };
 
-  if (isInitialLoading) {
-    return (
-      <div style={{
-        position: 'fixed',
-        inset: 0,
-        background: '#090d16',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 999999,
-        gap: 16
-      }}>
-        <div style={{
-          width: 44,
-          height: 44,
-          borderRadius: '50%',
-          border: '3px solid rgba(168, 85, 247, 0.15)',
-          borderTopColor: '#a855f7',
-          animation: 'spin 0.7s linear infinite'
-        }} />
-        <div style={{
-          fontSize: '0.86rem',
-          fontWeight: 600,
-          color: '#94a3b8',
-          letterSpacing: '0.05em',
-          fontFamily: 'Inter, system-ui, sans-serif'
-        }}>
-          Restoring NoteStack Session...
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="app-container">
+      {isInitialLoading && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'var(--bg-main)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 999999,
+          gap: 16
+        }}>
+          <div style={{
+            width: 44,
+            height: 44,
+            borderRadius: '50%',
+            border: '3px solid rgba(168, 85, 247, 0.15)',
+            borderTopColor: '#a855f7',
+            animation: 'spin 0.7s linear infinite'
+          }} />
+          <div style={{
+            fontSize: '0.86rem',
+            fontWeight: 600,
+            color: 'var(--text-muted)',
+            letterSpacing: '0.05em',
+            fontFamily: 'var(--font-body)'
+          }}>
+            Restoring NoteStack Session...
+          </div>
+        </div>
+      )}
       {isSidebarVisible && viewMode !== 'focus' && (
         <div 
           style={{ 

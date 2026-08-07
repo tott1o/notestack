@@ -5,6 +5,51 @@ const fs = require('fs');
 let mainWindow;
 const configPath = path.join(app.getPath('userData'), 'notestack-config.json');
 
+let activeWatcher = null;
+let watchTimer = null;
+
+function setupVaultWatcher(dirPath) {
+  if (activeWatcher) {
+    try { activeWatcher.close(); } catch (e) {}
+    activeWatcher = null;
+  }
+  if (!dirPath || !fs.existsSync(dirPath)) return;
+
+  try {
+    activeWatcher = fs.watch(dirPath, { recursive: true }, (_eventType, filename) => {
+      if (watchTimer) clearTimeout(watchTimer);
+      watchTimer = setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        const dirName = path.basename(dirPath);
+        const scan = scanDirectoryRecursively(dirPath, dirName);
+        const cfg = getSavedConfig();
+        mainWindow.webContents.send('fs:vault-updated', {
+          name: dirName,
+          path: dirPath,
+          subDirectories: scan.subDirs,
+          files: scan.files,
+          allVaults: cfg.savedVaults || []
+        });
+
+        if (filename) {
+          const fullPath = path.join(dirPath, filename);
+          try {
+            if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+              const ext = path.extname(fullPath).toLowerCase();
+              if (['.md', '.markdown', '.txt', '.json', '.js', '.ts', '.py', '.css', '.html', '.csv'].includes(ext)) {
+                const content = fs.readFileSync(fullPath, 'utf8');
+                mainWindow.webContents.send('fs:file-changed', { fullPath, content });
+              }
+            }
+          } catch (e) {}
+        }
+      }, 300);
+    });
+  } catch (err) {
+    console.error('Failed to setup directory watcher:', err);
+  }
+}
+
 function getSavedConfig() {
   try {
     if (fs.existsSync(configPath)) {
@@ -189,6 +234,7 @@ ipcMain.handle('dialog:openDirectory', async () => {
   }
 
   saveConfig({ activePath: dirPath, savedVaults: vaults });
+  setupVaultWatcher(dirPath);
 
   return {
     name: dirName,
@@ -206,6 +252,7 @@ ipcMain.handle('fs:scanDirectory', async (_, dirPath) => {
   
   const cfg = getSavedConfig();
   saveConfig({ activePath: dirPath });
+  setupVaultWatcher(dirPath);
 
   return {
     name: dirName,
@@ -317,6 +364,7 @@ ipcMain.handle('config:getSavedDirectory', async () => {
   if (cfg.activePath && fs.existsSync(cfg.activePath)) {
     const dirName = path.basename(cfg.activePath);
     const scan = scanDirectoryRecursively(cfg.activePath, dirName);
+    setupVaultWatcher(cfg.activePath);
     currentDir = {
       name: dirName,
       path: cfg.activePath,
@@ -328,6 +376,7 @@ ipcMain.handle('config:getSavedDirectory', async () => {
     const firstVault = vaults[0];
     const dirName = firstVault.name;
     const scan = scanDirectoryRecursively(firstVault.path, dirName);
+    setupVaultWatcher(firstVault.path);
     currentDir = {
       name: dirName,
       path: firstVault.path,

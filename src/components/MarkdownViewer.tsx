@@ -46,6 +46,7 @@ interface MarkdownViewerProps {
   onToggleBionic: () => void;
   onOpenFlashcards: () => void;
   viewMode: 'edit' | 'preview' | 'split';
+  isActive?: boolean;
 }
 
 export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
@@ -54,7 +55,8 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   settings,
   onToggleBionic,
   onOpenFlashcards,
-  viewMode
+  viewMode,
+  isActive = true
 }) => {
   const [content, setContent] = useState<string>(file.content || '');
   const [isSaved, setIsSaved] = useState<boolean>(true);
@@ -281,51 +283,78 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     };
   }, []);
 
-  // Initialize Mermaid configuration
-  useEffect(() => {
-    try {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'loose',
-        fontFamily: 'Inter, sans-serif'
-      });
-    } catch (e) {
-      console.error('Mermaid init error:', e);
-    }
-  }, []);
-
   // Compute live rendered HTML & Outline
   const renderedHtml = useMemo(() => {
     return renderMarkdownToHtml(content, settings.bionicReading);
   }, [content, settings.bionicReading]);
 
-  // Render Mermaid diagrams whenever renderedHtml updates or mode changes
+  // Live instant Mermaid diagram renderer (renders smoothly when tab is active in visible layout)
   useLayoutEffect(() => {
-    if (previewRef.current) {
+    let isMounted = true;
+
+    const renderMermaid = async () => {
+      if (!previewRef.current || isActive === false) return;
+
+      // Skip rendering if preview container is hidden or detached from layout
+      if (previewRef.current.clientWidth === 0 && previewRef.current.clientHeight === 0) return;
+
       const mermaidNodes = previewRef.current.querySelectorAll('.mermaid-diagram-card');
-      mermaidNodes.forEach(async (node, idx) => {
+      if (!mermaidNodes.length) return;
+
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: settings.theme === 'light' ? 'default' : 'dark',
+          securityLevel: 'loose',
+          fontFamily: 'Inter, sans-serif'
+        });
+      } catch (e) {
+        console.error('Mermaid init error:', e);
+      }
+
+      for (let idx = 0; idx < mermaidNodes.length; idx++) {
+        const node = mermaidNodes[idx] as HTMLElement;
         const code = decodeURIComponent(node.getAttribute('data-mermaid') || '');
-        if (code && !node.getAttribute('data-processed')) {
-          node.setAttribute('data-processed', 'true');
-          try {
-            const id = `mermaid-svg-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
-            const { svg } = await mermaid.render(id, code);
-            const container = node.querySelector('.mermaid-container');
-            if (container) {
-              container.innerHTML = svg;
-            }
-          } catch (e) {
-            console.error('Mermaid render error:', e);
-            const container = node.querySelector('.mermaid-container');
-            if (container) {
-              container.innerHTML = `<pre class="mermaid-error" style="color: var(--accent-rose); font-size: 0.8rem; padding: 12px; font-family: monospace;">${code}</pre>`;
-            }
+        if (!code) continue;
+
+        const container = node.querySelector('.mermaid-container');
+        if (!container) continue;
+
+        const svgEl = container.querySelector('svg');
+        const hasValidSvg = Boolean(svgEl && (svgEl.clientWidth > 0 || svgEl.children.length > 0));
+        const lastRenderedCode = node.getAttribute('data-rendered-code');
+
+        // Skip only if valid non-empty SVG exists in DOM AND code has not changed!
+        if (hasValidSvg && lastRenderedCode === code) continue;
+
+        try {
+          const id = `mermaid-svg-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+          const { svg } = await mermaid.render(id, code);
+          if (isMounted && container) {
+            container.innerHTML = svg;
+            node.setAttribute('data-rendered-code', code);
+          }
+        } catch (e) {
+          if (container && isMounted) {
+            container.innerHTML = `<pre class="mermaid-error" style="color: var(--accent-rose); font-size: 0.8rem; padding: 12px; font-family: monospace; white-space: pre-wrap;">${code}</pre>`;
           }
         }
-      });
-    }
-  }, [renderedHtml, activeMode]);
+      }
+    };
+
+    // Immediate execution before paint
+    renderMermaid();
+
+    // Frame backup to handle layout transitions
+    const raf = requestAnimationFrame(() => {
+      if (isMounted) renderMermaid();
+    });
+
+    return () => {
+      isMounted = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [renderedHtml, activeMode, viewMode, settings.theme, isActive]);
 
   const wordCount = useMemo(() => {
     return content.trim() ? content.trim().split(/\s+/).length : 0;

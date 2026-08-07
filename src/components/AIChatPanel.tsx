@@ -412,12 +412,13 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       const nodes = document.querySelectorAll('.ai-chat-messages .mermaid-diagram-card');
       nodes.forEach(async (node, idx) => {
         const rawCode = node.getAttribute('data-mermaid-code');
-        if (rawCode && !node.getAttribute('data-rendered')) {
-          node.setAttribute('data-rendered', 'true');
-          const id = `ai_chat_mermaid_${Date.now()}_${idx}`;
+        const hasSvg = Boolean(node.querySelector('svg'));
+        if (rawCode && (!hasSvg || node.getAttribute('data-rendered-code') !== rawCode)) {
+          const id = `ai_chat_mermaid_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
           try {
             const { svg } = await mermaid.render(id, rawCode);
             node.innerHTML = svg;
+            node.setAttribute('data-rendered-code', rawCode);
           } catch (err) {
             console.error('Mermaid render error in AI Chat:', err);
           }

@@ -15,5 +15,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternalUrl: (url) => ipcRenderer.invoke('shell:openExternalUrl', url),
   getSavedDirectory: () => ipcRenderer.invoke('config:getSavedDirectory'),
   saveVaultList: (vaults) => ipcRenderer.invoke('config:saveVaultList', vaults),
-  removeSavedVault: (vaultPath) => ipcRenderer.invoke('config:removeSavedVault', vaultPath)
+  removeSavedVault: (vaultPath) => ipcRenderer.invoke('config:removeSavedVault', vaultPath),
+  onVaultUpdated: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('fs:vault-updated', listener);
+    return () => ipcRenderer.removeListener('fs:vault-updated', listener);
+  },
+  onFileChanged: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('fs:file-changed', listener);
+    return () => ipcRenderer.removeListener('fs:file-changed', listener);
+  }
 });
