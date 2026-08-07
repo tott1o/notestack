@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { ZoomIn, ZoomOut, RotateCw, Maximize, Image as ImageIcon } from 'lucide-react';
 import type { FileItem } from '../types';
 import { getFileState, saveFileState } from '../utils/stateMemory';
@@ -42,34 +42,38 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
     };
   }, [file]);
 
+  const zoomRef = useRef<number>(zoom);
+  const rotationRef = useRef<number>(rotation);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+    rotationRef.current = rotation;
+  }, [zoom, rotation]);
+
+  // Save zoom & rotation state ONLY on tab close / unmount
+  useEffect(() => {
+    return () => {
+      if (!isDuplicateTab) {
+        saveFileState(fileKey, { zoom: zoomRef.current, rotation: rotationRef.current });
+      }
+    };
+  }, [fileKey, isDuplicateTab]);
+
   const handleZoomIn = () => {
-    setZoom(prev => {
-      const next = Math.min(500, prev + 25);
-      if (!isDuplicateTab) saveFileState(fileKey, { zoom: next, rotation });
-      return next;
-    });
+    setZoom(prev => Math.min(500, prev + 25));
   };
 
   const handleZoomOut = () => {
-    setZoom(prev => {
-      const next = Math.max(25, prev - 25);
-      if (!isDuplicateTab) saveFileState(fileKey, { zoom: next, rotation });
-      return next;
-    });
+    setZoom(prev => Math.max(25, prev - 25));
   };
 
   const handleResetZoom = () => {
     setZoom(100);
     setRotation(0);
-    if (!isDuplicateTab) saveFileState(fileKey, { zoom: 100, rotation: 0 });
   };
 
   const handleRotate = () => {
-    setRotation(prev => {
-      const next = (prev + 90) % 360;
-      if (!isDuplicateTab) saveFileState(fileKey, { zoom, rotation: next });
-      return next;
-    });
+    setRotation(prev => (prev + 90) % 360);
   };
 
   return (

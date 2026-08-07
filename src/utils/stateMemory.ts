@@ -33,24 +33,16 @@ export interface GlobalSessionState {
 
 export interface ViewerSaveStateSettings {
   mdEnabled: boolean;
-  mdInterval: number; // ms
   pdfEnabled: boolean;
-  pdfInterval: number; // ms
   docxEnabled: boolean;
-  docxInterval: number; // ms
   pptxEnabled: boolean;
-  pptxInterval: number; // ms
 }
 
 const DEFAULT_VIEWER_SAVE_SETTINGS: ViewerSaveStateSettings = {
   mdEnabled: true,
-  mdInterval: 500,
   pdfEnabled: true,
-  pdfInterval: 400,
   docxEnabled: true,
-  docxInterval: 400,
-  pptxEnabled: true,
-  pptxInterval: 400
+  pptxEnabled: true
 };
 
 const VIEWER_SETTINGS_KEY = 'notestack_viewer_save_settings_v1';
@@ -84,6 +76,21 @@ export function clearFileTypeStates(extension: 'md' | 'pdf' | 'docx' | 'pptx'): 
     keysToRemove.forEach(k => localStorage.removeItem(k));
   } catch (err) {
     console.error(`Failed to clear saved states for file type .${extension}:`, err);
+  }
+}
+
+export function clearAllFileStates(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(FILE_STATE_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (err) {
+    console.error("Failed to clear all saved file states:", err);
   }
 }
 

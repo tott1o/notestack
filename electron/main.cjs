@@ -442,8 +442,10 @@ ipcMain.handle('fs:renameItem', async (_, { oldPath, newName }) => {
 
 const os = require('os');
 const http = require('http');
+const url = require('url');
 
 let embeddedServer = null;
+const openSockets = new Set();
 let embeddedServerInfo = {
   active: false,
   port: 3000,
@@ -467,6 +469,26 @@ function getLocalIpAddress() {
   return 'localhost';
 }
 
+function stopEmbeddedServer() {
+  if (!embeddedServer) return;
+  try {
+    for (const socket of openSockets) {
+      try {
+        socket.destroy();
+      } catch (_) {}
+    }
+    openSockets.clear();
+    embeddedServer.close(() => {
+      console.log('Embedded server closed cleanly.');
+    });
+  } catch (err) {
+    console.error('Error stopping embedded server:', err);
+  } finally {
+    embeddedServer = null;
+    embeddedServerInfo.active = false;
+  }
+}
+
 function startEmbeddedServer(port = 3000) {
   if (embeddedServer) return embeddedServerInfo;
 
@@ -478,19 +500,120 @@ function startEmbeddedServer(port = 3000) {
     '.json': 'application/json',
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
     '.gif': 'image/gif',
     '.svg': 'image/svg+xml',
     '.ico': 'image/x-icon',
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
     '.ttf': 'font/ttf',
-    '.wasm': 'application/wasm'
+    '.wasm': 'application/wasm',
+    '.pdf': 'application/pdf',
+    '.md': 'text/markdown',
+    '.txt': 'text/plain'
   };
 
   try {
     embeddedServer = http.createServer((req, res) => {
-      let reqUrl = req.url.split('?')[0];
-      let filePath = path.join(distDir, reqUrl === '/' ? 'index.html' : reqUrl);
+      const parsedUrl = url.parse(req.url, true);
+      const pathname = parsedUrl.pathname;
+
+      // Enable CORS for all local network requests
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      // REST API: Server Status
+      if (pathname === '/api/status') {
+        const cfg = getSavedConfig();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ...embeddedServerInfo,
+          activeVault: cfg.activePath || null,
+          savedVaultsCount: (cfg.savedVaults || []).length
+        }));
+        return;
+      }
+
+      // REST API: Active Vault Directory Tree
+      if (pathname === '/api/vault/tree') {
+        const cfg = getSavedConfig();
+        const activeVaultPath = cfg.activePath;
+        if (!activeVaultPath || !fs.existsSync(activeVaultPath)) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No active vault loaded on desktop' }));
+          return;
+        }
+
+        try {
+          const files = scanDirectoryRecursive(activeVaultPath);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ vaultPath: activeVaultPath, files }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+      }
+
+      // REST API: Read File Content
+      if (pathname === '/api/vault/read') {
+        const targetPath = parsedUrl.query.path;
+        if (!targetPath || typeof targetPath !== 'string' || !fs.existsSync(targetPath)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'File path invalid or does not exist' }));
+          return;
+        }
+
+        try {
+          const ext = path.extname(targetPath).toLowerCase();
+          const contentType = mimeTypes[ext] || 'application/octet-stream';
+          const stat = fs.statSync(targetPath);
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            'Content-Length': stat.size,
+            'Cache-Control': 'no-cache'
+          });
+          fs.createReadStream(targetPath).pipe(res);
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+      }
+
+      // REST API: Write/Update File Content
+      if (pathname === '/api/vault/write' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            if (!data.path || data.content === undefined) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Missing path or content' }));
+              return;
+            }
+            fs.writeFileSync(data.path, data.content, 'utf8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        });
+        return;
+      }
+
+      // Serve Static Web Assets with SPA fallback
+      let reqPath = pathname === '/' ? 'index.html' : pathname;
+      let filePath = path.join(distDir, reqPath);
 
       if (!fs.existsSync(filePath) || (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory())) {
         filePath = path.join(distDir, 'index.html');
@@ -499,19 +622,27 @@ function startEmbeddedServer(port = 3000) {
       const ext = path.extname(filePath).toLowerCase();
       const contentType = mimeTypes[ext] || 'application/octet-stream';
 
-      fs.readFile(filePath, (err, content) => {
-        if (err) {
-          res.writeHead(500);
-          res.end('Server Error');
+      fs.stat(filePath, (statErr, stat) => {
+        if (statErr || !stat.isFile()) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('404 Not Found');
           return;
         }
+
         res.writeHead(200, {
           'Content-Type': contentType,
-          'Cache-Control': 'no-cache',
-          'Access-Control-Allow-Origin': '*'
+          'Content-Length': stat.size,
+          'Cache-Control': 'no-cache'
         });
-        res.end(content);
+
+        fs.createReadStream(filePath).pipe(res);
       });
+    });
+
+    // Track active connection sockets for clean shutdown
+    embeddedServer.on('connection', (socket) => {
+      openSockets.add(socket);
+      socket.on('close', () => openSockets.delete(socket));
     });
 
     embeddedServer.on('error', (e) => {
@@ -530,9 +661,9 @@ function startEmbeddedServer(port = 3000) {
         localUrl: `http://localhost:${port}`,
         networkUrl: `http://${ip}:${port}`
       };
-      console.log(`\n🚀 Embedded Electron Live Server running!`);
-      console.log(`➜ Local:   ${embeddedServerInfo.localUrl}`);
-      console.log(`➜ Network: ${embeddedServerInfo.networkUrl}\n`);
+      console.log(`\n🚀 NoteStack Live Embedded Server Active!`);
+      console.log(`➜ Local access:   ${embeddedServerInfo.localUrl}`);
+      console.log(`➜ Network access: ${embeddedServerInfo.networkUrl}\n`);
     });
   } catch (err) {
     console.error('Failed to start embedded server:', err);
@@ -573,6 +704,15 @@ app.whenReady().then(() => {
   });
 });
 
+app.on('before-quit', () => {
+  stopEmbeddedServer();
+});
+
+app.on('will-quit', () => {
+  stopEmbeddedServer();
+});
+
 app.on('window-all-closed', () => {
+  stopEmbeddedServer();
   if (process.platform !== 'darwin') app.quit();
 });

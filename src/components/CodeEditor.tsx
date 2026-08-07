@@ -52,6 +52,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
     };
   }, []);
 
+  const currentScrollTopRef = useRef<number>(0);
+
   // Synchronize Line Numbers & Highlighted Pre scroll with Textarea scroll
   const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
     const { scrollTop, scrollLeft } = e.currentTarget;
@@ -63,9 +65,18 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
       preRef.current.scrollLeft = scrollLeft;
     }
     if (!isDuplicateTab) {
-      saveFileState(fileKey, { scrollTop });
+      currentScrollTopRef.current = scrollTop;
     }
   };
+
+  // Save scroll state ONLY on tab close / unmount
+  useEffect(() => {
+    return () => {
+      if (!isDuplicateTab && currentScrollTopRef.current > 0) {
+        saveFileState(fileKey, { scrollTop: currentScrollTopRef.current });
+      }
+    };
+  }, [fileKey, isDuplicateTab]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;

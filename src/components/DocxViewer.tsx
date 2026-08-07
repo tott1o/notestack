@@ -89,7 +89,6 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
   };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isRestoringRef = useRef<boolean>(true);
   const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
   const fileKey = file.fullPath || file.id;
@@ -134,18 +133,26 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
     }
   }, [loading, rawHtml, fileKey, isDuplicateTab]);
 
+  const currentScrollTopRef = useRef<number>(0);
+
   const handleDocxScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
     if (!isDuplicateTab && !isRestoringRef.current) {
-      const saveSet = getSaveStateSettings();
-      if (saveSet.docxEnabled) {
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => {
-          saveFileState(fileKey, { scrollTop });
-        }, saveSet.docxInterval);
-      }
+      currentScrollTopRef.current = scrollTop;
     }
   };
+
+  // Save scroll state ONLY on tab close / unmount
+  useEffect(() => {
+    return () => {
+      if (!isDuplicateTab && !isRestoringRef.current) {
+        const finalScroll = scrollContainerRef.current ? scrollContainerRef.current.scrollTop : currentScrollTopRef.current;
+        if (finalScroll > 0) {
+          saveFileState(fileKey, { scrollTop: finalScroll });
+        }
+      }
+    };
+  }, [fileKey, isDuplicateTab]);
 
   useEffect(() => {
     let isMounted = true;

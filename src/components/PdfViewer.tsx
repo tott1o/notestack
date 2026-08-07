@@ -50,7 +50,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentScrollTopRef = useRef<number>(0);
+  const currentPageNumberRef = useRef<number>(1);
 
   const isRestoringRef = useRef<boolean>(true);
 
@@ -305,11 +306,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
 
   useEffect(() => {
     return () => {
-      if (!isDuplicateTab && !isRestoringRef.current && containerRef.current && containerRef.current.scrollTop >= 0) {
-        saveFileState(fileKey, { 
-          scrollTop: containerRef.current.scrollTop, 
-          pageNumber 
-        });
+      if (!isDuplicateTab && !isRestoringRef.current) {
+        const finalScroll = containerRef.current ? containerRef.current.scrollTop : currentScrollTopRef.current;
+        const finalPage = currentPageNumberRef.current || pageNumber;
+        if (finalScroll >= 0) {
+          saveFileState(fileKey, { 
+            scrollTop: finalScroll, 
+            pageNumber: finalPage 
+          });
+        }
       }
     };
   }, [fileKey, pageNumber, isDuplicateTab]);
@@ -338,26 +343,26 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
       setInputPage(String(activePage));
     }
 
-    const saveSet = getSaveStateSettings();
-    if (!saveSet.pdfEnabled) return;
+    if (activePage !== pageNumber) {
+      setPageNumber(activePage);
+      setInputPage(String(activePage));
+    }
 
-    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
-    saveDebounceRef.current = setTimeout(() => {
-      if (!isRestoringRef.current && !isDuplicateTab) {
-        saveFileState(fileKey, { scrollTop, pageNumber: activePage });
-      }
-    }, saveSet.pdfInterval);
+    currentPageNumberRef.current = activePage;
+    currentScrollTopRef.current = scrollTop;
   };
 
   const handlePageJump = (targetPage: number) => {
     const valid = Math.min(Math.max(1, targetPage), numPages || 999);
     setPageNumber(valid);
     setInputPage(String(valid));
+    currentPageNumberRef.current = valid;
 
     const wrapper = pageRefs.current.get(valid);
     if (wrapper && containerRef.current) {
-      containerRef.current.scrollTop = wrapper.offsetTop - containerRef.current.offsetTop - 10;
-      saveFileState(fileKey, { scrollTop: containerRef.current.scrollTop, pageNumber: valid });
+      const targetScroll = wrapper.offsetTop - containerRef.current.offsetTop - 10;
+      containerRef.current.scrollTop = targetScroll;
+      currentScrollTopRef.current = targetScroll;
     }
   };
 

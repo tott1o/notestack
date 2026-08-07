@@ -86,6 +86,7 @@ export interface PdfBookmark {
 declare global {
   interface Window {
     electronAPI?: {
+      isElectron?: boolean;
       openDirectoryDialog: () => Promise<any>;
       scanDirectory: (path: string) => Promise<any>;
       getSavedDirectory: () => Promise<any>;

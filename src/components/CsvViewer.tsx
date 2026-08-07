@@ -42,17 +42,22 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
     }
   }, [file.id, fileKey, isDuplicateTab]);
 
+  const currentScrollTopRef = useRef<number>(0);
+
   const handleCsvScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (!isDuplicateTab) {
-      saveFileState(fileKey, { scrollTop: e.currentTarget.scrollTop, searchQuery, viewMode });
+      currentScrollTopRef.current = e.currentTarget.scrollTop;
     }
   };
 
+  // Save scroll state ONLY on tab close / unmount
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (!isDuplicateTab && currentScrollTopRef.current > 0) {
+        saveFileState(fileKey, { scrollTop: currentScrollTopRef.current, searchQuery, viewMode });
+      }
     };
-  }, []);
+  }, [fileKey, isDuplicateTab, searchQuery, viewMode]);
 
   const isLargeDataset = useMemo(() => {
     const size = file.size || (file.content ? file.content.length : 0);

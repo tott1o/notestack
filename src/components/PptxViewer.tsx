@@ -128,19 +128,22 @@ export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
     };
   }, [fileKey, file.url, file.fullPath, file.arrayBuffer]);
 
+  const currentSlideRef = useRef<number>(currentSlide);
+
   // Sync Input Slide when currentSlide updates
   useEffect(() => {
     setInputSlide(String(currentSlide));
-    if (!isDuplicateTab && pptxResult && pptxResult.slideCount > 0 && currentSlide >= 1) {
-      const saveSet = getSaveStateSettings();
-      if (saveSet.pptxEnabled) {
-        const timer = setTimeout(() => {
-          saveFileState(fileKey, { currentSlide });
-        }, saveSet.pptxInterval);
-        return () => clearTimeout(timer);
+    currentSlideRef.current = currentSlide;
+  }, [currentSlide]);
+
+  // Save slide state ONLY on tab close / unmount
+  useEffect(() => {
+    return () => {
+      if (!isDuplicateTab && currentSlideRef.current >= 1) {
+        saveFileState(fileKey, { currentSlide: currentSlideRef.current });
       }
-    }
-  }, [fileKey, currentSlide, pptxResult, isDuplicateTab]);
+    };
+  }, [fileKey, isDuplicateTab]);
 
   // Handle HTML5 Fullscreen sync
   useEffect(() => {
@@ -158,9 +161,7 @@ export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
     const valid = Math.min(Math.max(1, slideNum), pptxResult.slideCount || 1);
     setCurrentSlide(valid);
     setInputSlide(String(valid));
-    if (!isDuplicateTab) {
-      saveFileState(fileKey, { currentSlide: valid });
-    }
+    currentSlideRef.current = valid;
   };
 
   const handleNextSlide = () => {

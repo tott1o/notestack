@@ -68,6 +68,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   // Undo/Redo history stacks
   const undoStackRef = useRef<{ text: string; cursorPos: number }[]>([]);
   const redoStackRef = useRef<{ text: string; cursorPos: number }[]>([]);
+  const currentScrollTopRef = useRef<number>(0);
   const undoDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSnapshotRef = useRef<string>(file.content || '');
   const [canUndo, setCanUndo] = useState(false);
@@ -125,13 +126,17 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
         clearTimeout(t2);
         clearTimeout(t3);
       };
-    } else {
-      if (textareaRef.current) textareaRef.current.scrollTop = 0;
-      if (previewRef.current) previewRef.current.scrollTop = 0;
-      if (lineGutterRef.current) lineGutterRef.current.scrollTop = 0;
-      isRestoringRef.current = false;
     }
   }, [file.id, fileKey, isDuplicateTab]);
+
+  // Save scroll state ONLY on tab close / unmount
+  useEffect(() => {
+    return () => {
+      if (!isDuplicateTab && currentScrollTopRef.current > 0) {
+        saveFileState(fileKey, { scrollTop: currentScrollTopRef.current });
+      }
+    };
+  }, [fileKey, isDuplicateTab]);
 
   // Sync content state when file.content prop changes externally (e.g. AI edits or disk reloads)
   useEffect(() => {
@@ -160,14 +165,10 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
       lineGutterRef.current.scrollTop = scrollTop;
     }
 
+    currentScrollTopRef.current = scrollTop;
+
     if (!isRestoringRef.current && !isDuplicateTab) {
-      const saveSet = getSaveStateSettings();
-      if (saveSet.mdEnabled) {
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => {
-          saveFileState(fileKey, { scrollTop });
-        }, saveSet.mdInterval);
-      }
+      currentScrollTopRef.current = scrollTop;
     }
 
     // Sync preview scroll position proportionally in split mode
@@ -220,13 +221,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     const scrollTop = previewEl.scrollTop;
 
     if (!isRestoringRef.current && !isDuplicateTab) {
-      const saveSet = getSaveStateSettings();
-      if (saveSet.mdEnabled) {
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => {
-          saveFileState(fileKey, { scrollTop });
-        }, saveSet.mdInterval);
-      }
+      currentScrollTopRef.current = scrollTop;
     }
 
     if (activeMode === 'split' && textareaRef.current && !isSyncScrolling.current) {

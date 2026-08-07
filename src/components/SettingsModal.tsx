@@ -3,7 +3,6 @@ import {
   X, 
   Settings as SettingsIcon, 
   Save, 
-  Clock, 
   Sliders, 
   Bot, 
   Key, 
@@ -14,11 +13,10 @@ import {
   Check, 
   Eye,
   EyeOff,
-  ChevronRight,
   ArrowLeft
 } from 'lucide-react';
 import type { ReadingSettings } from '../types';
-import { getSaveStateSettings, saveSaveStateSettings, type ViewerSaveStateSettings } from '../utils/stateMemory';
+import { getSaveStateSettings, saveSaveStateSettings, clearAllFileStates, type ViewerSaveStateSettings } from '../utils/stateMemory';
 import { PROVIDER_CONFIGS, DEFAULT_MODELS, type AIProvider, maskApiKey } from './AIChatPanel';
 
 interface SettingsModalProps {
@@ -442,11 +440,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                 <div>
                   <h4 style={{ margin: '0 0 4px 0', fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                    Viewer Position & State Memory
+                    Close-Triggered Position Memory
                   </h4>
-                  <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    Configure auto-save state toggles and save delay timers independently for each document format.
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    State saving is completely <strong>inactive</strong> during reading and scrolling for 0 CPU overhead. Position memory (scroll position, PDF page, slide number) is saved <strong>only when you close a tab (✕)</strong>.
                   </p>
+                </div>
+
+                {/* Clear All Memory Button */}
+                <div style={{
+                  background: 'var(--bg-surface-elevated)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 12,
+                  padding: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <div>
+                    <h5 style={{ margin: '0 0 2px 0', fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                      Clear All Saved Position Memory
+                    </h5>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      Reset saved scroll positions, PDF pages, and slide numbers for all documents.
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      clearAllFileStates();
+                      showNotice('Cleared all saved position states!');
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: '#ef4444',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      fontWeight: 700,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    Clear Memory
+                  </button>
                 </div>
 
                 {/* Individual Viewer Cards */}
@@ -456,37 +493,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     label: 'Markdown (.md) Editor & Viewer',
                     icon: FileText,
                     enabledKey: 'mdEnabled' as const,
-                    intervalKey: 'mdInterval' as const,
-                    desc: 'Saves scroll position, active edit line, and cursor position.'
+                    desc: 'Saves scroll position and active line only when tab is closed.'
                   },
                   {
                     id: 'pdf' as const,
                     label: 'PDF Document Reader',
                     icon: BookOpen,
                     enabledKey: 'pdfEnabled' as const,
-                    intervalKey: 'pdfInterval' as const,
-                    desc: 'Saves current page number, scroll offset, and zoom level.'
+                    desc: 'Saves active page number and scroll position only when tab is closed.'
                   },
                   {
                     id: 'docx' as const,
                     label: 'Word (.docx) Document Reader',
                     icon: File,
                     enabledKey: 'docxEnabled' as const,
-                    intervalKey: 'docxInterval' as const,
-                    desc: 'Saves scroll position and active chapter location.'
+                    desc: 'Saves scroll position only when tab is closed.'
                   },
                   {
                     id: 'pptx' as const,
                     label: 'PowerPoint (.pptx) Slide Viewer',
                     icon: Presentation,
                     enabledKey: 'pptxEnabled' as const,
-                    intervalKey: 'pptxInterval' as const,
-                    desc: 'Saves active slide index and presentation view scale.'
+                    desc: 'Saves active slide index only when tab is closed.'
                   }
                 ].map(v => {
                   const IconComponent = v.icon;
                   const isEnabled = viewerSettings[v.enabledKey];
-                  const intervalVal = viewerSettings[v.intervalKey];
 
                   return (
                     <div 
@@ -498,7 +530,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         padding: 18
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                           <div style={{
                             width: 36,
@@ -528,45 +560,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             onChange={e => handleUpdateViewerSetting(v.enabledKey, e.target.checked)}
                           />
                           <span style={{ fontSize: '0.84rem', fontWeight: 700, color: isEnabled ? '#4ade80' : 'var(--text-muted)' }}>
-                            {isEnabled ? 'Enabled' : 'Disabled'}
+                            {isEnabled ? 'Save on Close ON' : 'OFF'}
                           </span>
                         </label>
-                      </div>
-
-                      {/* Configure Sub-Settings Popup Trigger */}
-                      <div style={{
-                        marginTop: 14,
-                        paddingTop: 12,
-                        borderTop: '1px solid var(--border-color)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                          <Clock size={16} />
-                          <span>Save Delay:</span>
-                          <strong style={{ color: 'var(--primary)', fontWeight: 800 }}>{intervalVal} ms</strong>
-                        </div>
-
-                        <button
-                          onClick={() => setActiveSubSetting(v.id)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            padding: '6px 14px',
-                            borderRadius: 6,
-                            background: 'var(--bg-surface)',
-                            border: '1px solid var(--border-color)',
-                            color: 'var(--primary)',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <span>Advanced Sub-Settings</span>
-                          <ChevronRight size={14} />
-                        </button>
                       </div>
                     </div>
                   );
@@ -903,45 +899,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Auto-Save Interval Delay Slider */}
-                <div style={{ background: 'var(--bg-surface-elevated)', padding: 16, borderRadius: 10, border: '1px solid var(--border-color)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div>
-                      <h5 style={{ margin: '0 0 2px 0', fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                        Auto-Save Delay Interval
-                      </h5>
-                      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                        Debounce timer before writing state to disk.
-                      </span>
-                    </div>
-                    <strong style={{ color: 'var(--primary)', fontSize: '0.9rem', fontWeight: 800 }}>
-                      {(activeSubSetting === 'md' ? viewerSettings.mdInterval :
-                        activeSubSetting === 'pdf' ? viewerSettings.pdfInterval :
-                        activeSubSetting === 'docx' ? viewerSettings.docxInterval :
-                        viewerSettings.pptxInterval)} ms
-                    </strong>
-                  </div>
 
-                  <input 
-                    type="range"
-                    min={200}
-                    max={3000}
-                    step={100}
-                    value={
-                      activeSubSetting === 'md' ? viewerSettings.mdInterval :
-                      activeSubSetting === 'pdf' ? viewerSettings.pdfInterval :
-                      activeSubSetting === 'docx' ? viewerSettings.docxInterval :
-                      viewerSettings.pptxInterval
-                    }
-                    onChange={e => {
-                      const key = activeSubSetting === 'md' ? 'mdInterval' :
-                                  activeSubSetting === 'pdf' ? 'pdfInterval' :
-                                  activeSubSetting === 'docx' ? 'docxInterval' : 'pptxInterval';
-                      handleUpdateViewerSetting(key, parseInt(e.target.value, 10));
-                    }}
-                    style={{ width: '100%' }}
-                  />
-                </div>
 
                 {/* Format Specific Feature Flags */}
                 {activeSubSetting === 'md' && (

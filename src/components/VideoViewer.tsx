@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Video, 
   Play, 
@@ -36,15 +36,26 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({ file, onExportNotesToM
   const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
   const fileKey = file.fullPath || file.id;
 
+  const currentTimeRef = useRef<number>(0);
+
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const time = videoRef.current.currentTime;
     setCurrentTime(time);
     setDuration(videoRef.current.duration || 0);
     if (!isDuplicateTab) {
-      saveFileState(fileKey, { currentTime: time });
+      currentTimeRef.current = time;
     }
   };
+
+  // Save video timestamp ONLY on tab close / unmount
+  useEffect(() => {
+    return () => {
+      if (!isDuplicateTab && currentTimeRef.current > 0) {
+        saveFileState(fileKey, { currentTime: currentTimeRef.current });
+      }
+    };
+  }, [fileKey, isDuplicateTab]);
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
