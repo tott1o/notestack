@@ -37,7 +37,7 @@ import {
   extractTableOfContents, 
   getTaskProgress 
 } from '../utils/markdownUtils';
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
 
 interface MarkdownViewerProps {
   file: FileItem;
@@ -96,8 +96,9 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     setCanUndo(false);
     setCanRedo(false);
 
-    // Duplicate tabs do not load or save persistent state
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    // Duplicate tabs do not load or save persistent state, and respect save state toggle
+    const saveSet = getSaveStateSettings();
+    const saved = (!isDuplicateTab && saveSet.mdEnabled) ? getFileState(fileKey) : {};
     const targetScrollTop = saved.scrollTop;
 
     if (targetScrollTop && targetScrollTop > 0) {
@@ -123,6 +124,9 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
         clearTimeout(t3);
       };
     } else {
+      if (textareaRef.current) textareaRef.current.scrollTop = 0;
+      if (previewRef.current) previewRef.current.scrollTop = 0;
+      if (lineGutterRef.current) lineGutterRef.current.scrollTop = 0;
       isRestoringRef.current = false;
     }
   }, [file.id, fileKey, isDuplicateTab]);
@@ -155,7 +159,13 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     }
 
     if (!isRestoringRef.current && !isDuplicateTab) {
-      saveFileState(fileKey, { scrollTop });
+      const saveSet = getSaveStateSettings();
+      if (saveSet.mdEnabled) {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+          saveFileState(fileKey, { scrollTop });
+        }, saveSet.mdInterval);
+      }
     }
 
     // Sync preview scroll position proportionally in split mode
@@ -208,7 +218,13 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     const scrollTop = previewEl.scrollTop;
 
     if (!isRestoringRef.current && !isDuplicateTab) {
-      saveFileState(fileKey, { scrollTop });
+      const saveSet = getSaveStateSettings();
+      if (saveSet.mdEnabled) {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+          saveFileState(fileKey, { scrollTop });
+        }, saveSet.mdInterval);
+      }
     }
 
     if (activeMode === 'split' && textareaRef.current && !isSyncScrolling.current) {

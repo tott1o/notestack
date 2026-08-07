@@ -2629,7 +2629,7 @@ button, input, select, textarea {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   AI CHAT PANEL — Premium Glassmorphism Sidebar
+   AI CHAT PANEL — Standard Solid Sidebar Design System
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .ai-chat-panel {
@@ -2641,8 +2641,11 @@ button, input, select, textarea {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface, #0f172a);
-  border-left: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-color);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   z-index: 10;
   font-family: var(--font-body, 'Inter', sans-serif);
 }

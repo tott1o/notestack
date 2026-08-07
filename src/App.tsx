@@ -16,6 +16,7 @@ import { FlashcardsModal } from './components/FlashcardsModal';
 import { CreateNoteModal } from './components/CreateNoteModal';
 import { CreateFolderModal } from './components/CreateFolderModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
+import { SettingsModal } from './components/SettingsModal';
 import { AIChatPanel } from './components/AIChatPanel';
 
 import type { FileItem, MainDirectory, ReadingSettings, ViewMode, SplitLayoutMode } from './types';
@@ -43,6 +44,7 @@ export function App() {
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [showFlashcards, setShowFlashcards] = useState<boolean>(false);
   const [showQuickSearch, setShowQuickSearch] = useState<boolean>(false);
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const AI_PANEL_OPEN_KEY = 'notestack_ai_panel_open_v1';
 
   const [isAIChatOpen, setIsAIChatOpen] = useState<boolean>(() => {
@@ -103,15 +105,21 @@ export function App() {
   const [showCreateFolderModal, setShowCreateFolderModal] = useState<boolean>(false);
   const [targetModuleName, setTargetModuleName] = useState<string | undefined>(undefined);
 
-  const [settings, setSettings] = useState<ReadingSettings>({
-    theme: 'full-black',
-    fontSize: 16,
-    lineHeight: 1.7,
-    fontFamily: 'Inter',
-    bionicReading: false,
-    showToc: true,
-    speedReadingActive: false,
-    speedReadingWpm: 300
+  const [settings, setSettings] = useState<ReadingSettings>(() => {
+    let savedTheme: any = 'full-black';
+    try {
+      savedTheme = localStorage.getItem('notestack_permanent_theme_v1') || 'full-black';
+    } catch {}
+    return {
+      theme: savedTheme,
+      fontSize: 16,
+      lineHeight: 1.7,
+      fontFamily: 'Inter',
+      bionicReading: false,
+      showToc: true,
+      speedReadingActive: false,
+      speedReadingWpm: 300
+    };
   });
 
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
@@ -1347,6 +1355,7 @@ export function App() {
           onToggleSidebar={() => setIsSidebarVisible(prev => !prev)}
           isAIChatOpen={isAIChatOpen}
           onToggleAIChat={() => setIsAIChatOpen(prev => !prev)}
+          onOpenSettings={() => setShowSettingsModal(true)}
         />
 
         <TabBar 
@@ -1460,6 +1469,21 @@ export function App() {
           setShowQuickSearch(false);
         }}
         onCreateNewNote={() => triggerOpenCreateModal()}
+      />
+
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        readingSettings={settings}
+        onUpdateReadingSettings={(newSet) => {
+          setSettings(prev => {
+            const updated = { ...prev, ...newSet };
+            if (newSet.theme) {
+              try { localStorage.setItem('notestack_permanent_theme_v1', newSet.theme); } catch {}
+            }
+            return updated;
+          });
+        }}
       />
 
       <AIChatPanel

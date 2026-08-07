@@ -2,19 +2,12 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   X,
   Send,
-  Settings,
-  Key,
-  Eye,
-  EyeOff,
   Plus,
   Paperclip,
   Bot,
   User,
-  Trash2,
   Copy,
   Check,
-  ChevronDown,
-  ChevronRight,
   FileText,
   Code,
   AlertCircle,
@@ -184,9 +177,9 @@ const GROQ_KEY_STORAGE = 'notestack_ai_groq_key_v1';
 const OPENROUTER_KEY_STORAGE = 'notestack_ai_openrouter_key_v1';
 const MODEL_STORAGE_KEY = 'notestack_ai_model_v1';
 
-type AIProvider = 'gemini' | 'groq' | 'openrouter';
+export type AIProvider = 'gemini' | 'groq' | 'openrouter';
 
-const PROVIDER_CONFIGS: Record<AIProvider, { label: string; keyHint: string; keyUrl: string; models: { id: string; label: string; desc: string }[] }> = {
+export const PROVIDER_CONFIGS: Record<AIProvider, { label: string; keyHint: string; keyUrl: string; models: { id: string; label: string; desc: string }[] }> = {
   gemini: {
     label: 'Google Gemini',
     keyHint: 'Get free key from',
@@ -232,8 +225,8 @@ const PROVIDER_CONFIGS: Record<AIProvider, { label: string; keyHint: string; key
   }
 };
 
-const DEFAULT_PROVIDER: AIProvider = 'gemini';
-const DEFAULT_MODELS: Record<AIProvider, string> = {
+export const DEFAULT_PROVIDER: AIProvider = 'gemini';
+export const DEFAULT_MODELS: Record<AIProvider, string> = {
   gemini: 'gemini-3.6-flash',
   groq: 'llama-3.3-70b-versatile',
   openrouter: 'openrouter/free'
@@ -253,7 +246,7 @@ function getStoredApiKey(provider: AIProvider): string {
   }
 }
 
-function storeApiKey(provider: AIProvider, apiKeyValue: string): void {
+export function storeApiKey(provider: AIProvider, apiKeyValue: string): void {
   try {
     const key = provider === 'openrouter' ? OPENROUTER_KEY_STORAGE : provider === 'groq' ? GROQ_KEY_STORAGE : GEMINI_KEY_STORAGE;
     localStorage.setItem(key, apiKeyValue);
@@ -281,9 +274,11 @@ function storeChatHistory(messages: ChatMessage[]): void {
   }
 }
 
-function maskApiKey(key: string): string {
-  if (!key || key.length < 8) return '••••••••';
-  return key.substring(0, 4) + '••••••••••••' + key.substring(key.length - 4);
+export function maskApiKey(key: string): string {
+  if (!key) return '';
+  if (key.length <= 6) return '****';
+  // Show first 4 characters and mask the rest with 16 stars
+  return key.substring(0, 4) + '****************';
 }
 
 function truncateContent(content: string, maxChars: number = 8000): string {
@@ -330,38 +325,59 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>(() => getStoredChatHistory());
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [provider, setProvider] = useState<AIProvider>(() => {
-    try { return (localStorage.getItem(PROVIDER_STORAGE_KEY) as AIProvider) || DEFAULT_PROVIDER; } catch { return DEFAULT_PROVIDER; }
-  });
-  const [apiKey, setApiKey] = useState(() => getStoredApiKey((() => { try { return (localStorage.getItem(PROVIDER_STORAGE_KEY) as AIProvider) || DEFAULT_PROVIDER; } catch { return DEFAULT_PROVIDER; } })()));
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showApiKeyValue, setShowApiKeyValue] = useState(false);
-  const [apiKeyError, setApiKeyError] = useState('');
   const [notification, setNotification] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileItem[]>([]);
   const [excludeAutoContext, setExcludeAutoContext] = useState<boolean>(false);
-  const [autoAttachActiveFile, setAutoAttachActiveFile] = useState<boolean>(() => {
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [filePickerQuery, setFilePickerQuery] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Reset auto-context exclusion when active file changes
+  useEffect(() => {
+    setExcludeAutoContext(false);
+  }, [activeFile?.id]);
+  // ── Dynamic State from LocalStorage / Settings ──
+  const [provider, setProviderState] = useState<AIProvider>(() => {
+    try { return (localStorage.getItem(PROVIDER_STORAGE_KEY) as AIProvider) || DEFAULT_PROVIDER; } catch { return DEFAULT_PROVIDER; }
+  });
+
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    try { return localStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_MODELS[provider] || DEFAULT_MODELS[DEFAULT_PROVIDER]; } catch { return DEFAULT_MODELS[DEFAULT_PROVIDER]; }
+  });
+
+  // Refresh provider and model from localStorage when panel opens or settings updated
+  useEffect(() => {
+    if (isOpen) {
+      try {
+        const storedProv = (localStorage.getItem(PROVIDER_STORAGE_KEY) as AIProvider) || DEFAULT_PROVIDER;
+        const storedMod = localStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_MODELS[storedProv] || DEFAULT_MODELS[DEFAULT_PROVIDER];
+        setProviderState(storedProv);
+        setSelectedModel(storedMod);
+      } catch {}
+    }
+  }, [isOpen]);
+
+  const handleSelectModelChange = (newModel: string) => {
+    setSelectedModel(newModel);
+    try {
+      localStorage.setItem(MODEL_STORAGE_KEY, newModel);
+    } catch (err) {
+      console.error('Failed to save selected AI model:', err);
+    }
+  };
+
+  const apiKey = useMemo(() => {
+    return getStoredApiKey(provider);
+  }, [provider, isOpen]);
+
+  const autoAttachActiveFile = useMemo(() => {
     try {
       const val = localStorage.getItem('notestack_ai_auto_context_v1');
       return val !== null ? val === 'true' : true;
     } catch {
       return true;
     }
-  });
-  const [showFilePicker, setShowFilePicker] = useState(false);
-
-  // Reset auto-context exclusion when active file changes
-  useEffect(() => {
-    setExcludeAutoContext(false);
-  }, [activeFile?.id]);
-  const [filePickerQuery, setFilePickerQuery] = useState('');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState(() => {
-    try { return localStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_MODELS[DEFAULT_PROVIDER]; } catch { return DEFAULT_MODELS[DEFAULT_PROVIDER]; }
-  });
-  const [showAltProviders, setShowAltProviders] = useState(false);
-  const [showKeyManage, setShowKeyManage] = useState(false);
+  }, [isOpen]);
 
   // ── Refs ──
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -895,8 +911,7 @@ ${context}`;
     if (!text || isLoading) return;
 
     if (!apiKey) {
-      showNotification('error', 'No API key configured. Open Settings to add your API key.');
-      setShowSettings(true);
+      showNotification('error', 'No API key configured. Open App Settings to configure your AI key.');
       return;
     }
 
@@ -1011,8 +1026,7 @@ ${context}`;
       let errorMsg = 'An unexpected error occurred.';
 
       if (err.message === 'NO_API_KEY') {
-        errorMsg = 'No API key configured. Please add your Gemini API key in Settings.';
-        setShowSettings(true);
+        errorMsg = 'No API key configured. Please add your API key in Settings.';
       } else if (err.message?.startsWith('QUOTA_EXCEEDED')) {
         const hint = err.message.replace('QUOTA_EXCEEDED:', '').trim();
         if (provider === 'gemini') {
@@ -1022,11 +1036,9 @@ ${context}`;
           errorMsg = `${PROVIDER_CONFIGS[provider].label} Rate Limit Reached.${hint ? ' ' + hint : ''} Please wait a few seconds and try again.`;
           showNotification('error', `Rate limit hit! Please wait a moment.`);
         }
-        setShowSettings(true);
       } else if (err.message === 'INVALID_API_KEY') {
         errorMsg = 'Invalid API key. Please check your API key in Settings.';
         showNotification('error', 'Invalid API key! Please update it in Settings.');
-        setShowSettings(true);
       } else if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
         errorMsg = 'Network error. Please check your internet connection.';
       } else {
@@ -1300,32 +1312,6 @@ ${context}`;
     setAppendToNoteModal(null);
   }, [appendToNoteModal, activeFile, onFileContentUpdated, onContentChange, showNotification]);
 
-  // ── Save API key ──
-  const handleSaveApiKey = useCallback(() => {
-    const key = apiKeyInput.trim();
-    if (!key) {
-      setApiKeyError('Please enter a valid API key');
-      return;
-    }
-    if (key.length < 20) {
-      setApiKeyError('API key seems too short. Please check and try again.');
-      return;
-    }
-    storeApiKey(provider, key);
-    setApiKey(key);
-    setApiKeyInput('');
-    setApiKeyError('');
-    setShowApiKeyValue(false);
-    showNotification('success', `🔑 ${PROVIDER_CONFIGS[provider].label} API key saved!`);
-  }, [apiKeyInput, showNotification, provider]);
-
-  // ── Remove API key ──
-  const handleRemoveApiKey = useCallback(() => {
-    storeApiKey(provider, '');
-    setApiKey('');
-    showNotification('info', '🔑 API key removed.');
-  }, [showNotification, provider]);
-
   // ── Clear chat ──
   const handleClearChat = useCallback(() => {
     setMessages([]);
@@ -1409,19 +1395,24 @@ ${context}`;
           </div>
           <div>
             <h3 className="ai-chat-title">NoteStack AI</h3>
-            <div className="ai-header-model-picker">
+            <div className="ai-header-model-picker" style={{ marginTop: 2 }}>
               <select
                 value={selectedModel}
-                onChange={(e) => {
-                  setSelectedModel(e.target.value);
-                  try { localStorage.setItem(MODEL_STORAGE_KEY, e.target.value); } catch {}
-                  showNotification('info', `Model set to ${e.target.value}`);
+                onChange={(e) => handleSelectModelChange(e.target.value)}
+                style={{
+                  background: 'var(--bg-surface-elevated)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--primary)',
+                  fontSize: '0.74rem',
+                  fontWeight: 700,
+                  borderRadius: 6,
+                  padding: '2px 8px',
+                  cursor: 'pointer',
+                  outline: 'none'
                 }}
-                className="ai-header-model-select"
-                title="Choose AI Model"
               >
-                {PROVIDER_CONFIGS[provider].models.map(m => (
-                  <option key={m.id} value={m.id}>
+                {PROVIDER_CONFIGS[provider]?.models.map((m) => (
+                  <option key={m.id} value={m.id} style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>
                     {m.label}
                   </option>
                 ))}
@@ -1437,198 +1428,11 @@ ${context}`;
           >
             <RotateCcw size={14} />
           </button>
-          <button
-            className="ai-header-btn"
-            onClick={() => setShowSettings(!showSettings)}
-            title="Settings"
-          >
-            <Settings size={14} />
-          </button>
           <button className="ai-header-btn ai-close-btn" onClick={onClose} title="Close AI Panel">
             <X size={14} />
           </button>
         </div>
       </div>
-
-      {/* ── Settings Panel ── */}
-      {showSettings && (
-        <div className="ai-settings-panel">
-          {/* ── Collapsible Provider Switcher ── */}
-          <div style={{ marginBottom: 12 }}>
-            <button
-              className="ai-alt-providers-toggle"
-              onClick={() => setShowAltProviders(!showAltProviders)}
-            >
-              {showAltProviders ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <span>{showAltProviders ? 'Hide Provider Selection' : `Provider: ${PROVIDER_CONFIGS[provider].label} (Change)`}</span>
-            </button>
-
-            {showAltProviders && (
-              <div className="ai-provider-tabs" style={{ marginTop: 8 }}>
-                {(Object.keys(PROVIDER_CONFIGS) as AIProvider[]).map(p => (
-                  <button
-                    key={p}
-                    className={`ai-provider-tab ${provider === p ? 'active' : ''}`}
-                    onClick={() => {
-                      setProvider(p);
-                      try { localStorage.setItem(PROVIDER_STORAGE_KEY, p); } catch {}
-                      const storedKey = getStoredApiKey(p);
-                      setApiKey(storedKey);
-                      // Switch to that provider's default model
-                      const newModel = DEFAULT_MODELS[p];
-                      setSelectedModel(newModel);
-                      try { localStorage.setItem(MODEL_STORAGE_KEY, newModel); } catch {}
-                      setApiKeyInput('');
-                      setApiKeyError('');
-                      showNotification('info', `Switched to ${PROVIDER_CONFIGS[p].label}`);
-                    }}
-                  >
-                    {PROVIDER_CONFIGS[p].label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ── API Key ── */}
-          <div style={{ marginTop: 12 }}>
-            <div className="ai-settings-title" style={{ marginBottom: 8 }}>
-              <Key size={14} />
-              <span>{PROVIDER_CONFIGS[provider].label} API Key</span>
-            </div>
-
-            {apiKey ? (
-              <div style={{ marginTop: 4 }}>
-                <button
-                  className="ai-alt-providers-toggle"
-                  onClick={() => setShowKeyManage(!showKeyManage)}
-                >
-                  {showKeyManage ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  <span>{showKeyManage ? 'Hide Key Details' : 'API Key Configured (Manage)'}</span>
-                </button>
-
-                {showKeyManage && (
-                  <div className="ai-key-status-container" style={{ marginTop: 8 }}>
-                    <div className="ai-key-status-row">
-                      <div className="ai-key-badge ai-key-active">
-                        <Check size={12} />
-                        <span>Key active: {maskApiKey(apiKey)}</span>
-                      </div>
-                      <button
-                        className="ai-key-remove-btn"
-                        onClick={() => {
-                          handleRemoveApiKey();
-                          setShowKeyManage(false);
-                        }}
-                      >
-                        <Trash2 size={12} />
-                        <span>Remove Key</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="ai-key-form">
-                <div className="ai-key-input-wrapper">
-                  <input
-                    type={showApiKeyValue ? 'text' : 'password'}
-                    placeholder={`Enter your ${PROVIDER_CONFIGS[provider].label} API key...`}
-                    value={apiKeyInput}
-                    onChange={(e) => { setApiKeyInput(e.target.value); setApiKeyError(''); }}
-                    className="ai-key-input"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <button
-                    className="ai-key-eye-btn"
-                    onClick={() => setShowApiKeyValue(!showApiKeyValue)}
-                    title={showApiKeyValue ? 'Hide key' : 'Show key'}
-                  >
-                    {showApiKeyValue ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-                {apiKeyError && (
-                  <div className="ai-key-error">
-                    <AlertCircle size={12} />
-                    <span>{apiKeyError}</span>
-                  </div>
-                )}
-                <button className="ai-key-save-btn" onClick={handleSaveApiKey}>
-                  <Key size={14} />
-                  <span>Save API Key</span>
-                </button>
-                <p className="ai-key-hint">
-                  {PROVIDER_CONFIGS[provider].keyHint}{' '}
-                  <a href={PROVIDER_CONFIGS[provider].keyUrl} target="_blank" rel="noopener noreferrer">
-                    {provider === 'openrouter' ? 'openrouter.ai/keys' : provider === 'groq' ? 'console.groq.com' : 'Google AI Studio'}
-                  </a>
-                  {provider === 'openrouter' && <span style={{ color: '#38bdf8', fontWeight: 600 }}> — 200+ AI Models & Free Tier</span>}
-                  {provider === 'groq' && <span style={{ color: '#34d399', fontWeight: 600 }}> — Free, No Credit Card Needed</span>}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* ── Model Selector ── */}
-          <div style={{ marginTop: 14, borderTop: '1px solid rgba(168,85,247,0.1)', paddingTop: 12 }}>
-            <div className="ai-settings-title" style={{ marginBottom: 8 }}>
-              <Sparkles size={14} />
-              <span>Model</span>
-            </div>
-            <select
-              className="ai-model-select"
-              value={selectedModel}
-              onChange={(e) => {
-                setSelectedModel(e.target.value);
-                try { localStorage.setItem(MODEL_STORAGE_KEY, e.target.value); } catch {}
-                const found = PROVIDER_CONFIGS[provider].models.find(m => m.id === e.target.value);
-                showNotification('info', `Switched to ${found?.label || e.target.value}`);
-              }}
-            >
-              {PROVIDER_CONFIGS[provider].models.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.label} — {m.desc}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* ── Auto Context Toggle ── */}
-          <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
-              <FileText size={14} style={{ color: 'var(--primary)' }} />
-              <span>Auto-attach open note to context</span>
-            </div>
-            <label className="toggle-switch" style={{ position: 'relative', display: 'inline-block', width: 34, height: 18, margin: 0, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={autoAttachActiveFile}
-                onChange={(e) => {
-                  const val = e.target.checked;
-                  setAutoAttachActiveFile(val);
-                  try { localStorage.setItem('notestack_ai_auto_context_v1', String(val)); } catch {}
-                }}
-                style={{ opacity: 0, width: 0, height: 0 }}
-              />
-              <span 
-                style={{
-                  position: 'absolute', inset: 0,
-                  backgroundColor: autoAttachActiveFile ? 'var(--primary)' : 'var(--bg-surface-elevated)',
-                  borderRadius: 20, transition: '0.2s'
-                }}
-              >
-                <span 
-                  style={{
-                    position: 'absolute', height: 14, width: 14, left: autoAttachActiveFile ? 17 : 2, bottom: 2,
-                    backgroundColor: 'white', borderRadius: '50%', transition: '0.2s'
-                  }} 
-                />
-              </span>
-            </label>
-          </div>
-        </div>
-      )}
 
       {/* ── Messages Area ── */}
       <div className="ai-chat-messages" ref={chatContainerRef}>
@@ -1824,7 +1628,6 @@ ${context}`;
                       if (isActiveFile) {
                         if (excludeAutoContext || !autoAttachActiveFile) {
                           setExcludeAutoContext(false);
-                          setAutoAttachActiveFile(true);
                           try { localStorage.setItem('notestack_ai_auto_context_v1', 'true'); } catch {}
                         } else {
                           setExcludeAutoContext(true);

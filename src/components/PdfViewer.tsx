@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { FileItem } from '../types';
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
 
 // Configure pdfjs worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -58,10 +58,26 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   useEffect(() => {
     pageRefs.current.clear();
     isRestoringRef.current = true;
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
-    const initialPage = saved.pageNumber || 1;
-    setPageNumber(initialPage);
-    setInputPage(String(initialPage));
+    const saveSet = getSaveStateSettings();
+    if (!isDuplicateTab && saveSet.pdfEnabled) {
+      const saved = getFileState(fileKey);
+      if (saved.pageNumber && saved.pageNumber > 0) {
+        setPageNumber(saved.pageNumber);
+        setInputPage(String(saved.pageNumber));
+      } else {
+        setPageNumber(1);
+        setInputPage('1');
+      }
+      if (saved.scrollTop && containerRef.current) {
+        containerRef.current.scrollTop = saved.scrollTop;
+      }
+    } else {
+      setPageNumber(1);
+      setInputPage('1');
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0;
+      }
+    }
     setSearchQuery('');
     setSearchResults([]);
     setCurrentMatchIdx(0);
@@ -322,12 +338,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
       setInputPage(String(activePage));
     }
 
+    const saveSet = getSaveStateSettings();
+    if (!saveSet.pdfEnabled) return;
+
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(() => {
       if (!isRestoringRef.current && !isDuplicateTab) {
         saveFileState(fileKey, { scrollTop, pageNumber: activePage });
       }
-    }, 30000);
+    }, saveSet.pdfInterval);
   };
 
   const handlePageJump = (targetPage: number) => {

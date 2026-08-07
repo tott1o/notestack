@@ -7,7 +7,8 @@ import {
   Terminal,
   PanelLeftClose,
   PanelLeft,
-  Sparkles
+  Sparkles,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import type { FileItem, ReadingSettings, ViewMode } from '../types';
 
@@ -23,6 +24,7 @@ interface HeaderBarProps {
   onToggleSidebar: () => void;
   isAIChatOpen?: boolean;
   onToggleAIChat?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -36,7 +38,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   isSidebarVisible,
   onToggleSidebar,
   isAIChatOpen,
-  onToggleAIChat
+  onToggleAIChat,
+  onOpenSettings
 }) => {
 
   return (
@@ -107,6 +110,30 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <span>AI</span>
           </button>
         )}
+
+        {/* Settings Modal Toggle */}
+        <button
+          className="tool-btn"
+          onClick={onOpenSettings}
+          style={{
+            background: 'var(--bg-surface-elevated)',
+            border: '1px solid var(--border-color)',
+            color: 'var(--text-main)',
+            padding: '4px 10px',
+            borderRadius: 'var(--radius-md)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: '0.78rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            flexShrink: 0
+          }}
+          title="Open App Settings"
+        >
+          <SettingsIcon size={14} />
+          <span>Settings</span>
+        </button>
 
         {/* Theme Selector */}
         <div style={{ display: 'flex', gap: 3, background: 'var(--bg-surface-elevated)', padding: 3, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>

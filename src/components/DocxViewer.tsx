@@ -22,7 +22,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import type { FileItem } from '../types';
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
 
 interface DocxViewerProps {
   file: FileItem;
@@ -89,13 +89,17 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
   };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isRestoringRef = useRef<boolean>(true);
   const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
   const fileKey = file.fullPath || file.id;
 
   // Instant scroll position restoration
   useLayoutEffect(() => {
     if (!loading && rawHtml) {
-      const saved = isDuplicateTab ? {} : getFileState(fileKey);
+      isRestoringRef.current = true;
+      const saveSet = getSaveStateSettings();
+      const saved = (!isDuplicateTab && saveSet.docxEnabled) ? getFileState(fileKey) : {};
       if (saved.scrollTop && scrollContainerRef.current) {
         const targetScroll = saved.scrollTop;
         scrollContainerRef.current.scrollTop = targetScroll;
@@ -116,19 +120,30 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
           if (scrollContainerRef.current) {
             scrollContainerRef.current.scrollTop = targetScroll;
           }
+          isRestoringRef.current = false;
         }, 350);
 
         return () => {
           clearTimeout(t1);
           clearTimeout(t2);
         };
+      } else {
+        if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+        isRestoringRef.current = false;
       }
     }
   }, [loading, rawHtml, fileKey, isDuplicateTab]);
 
   const handleDocxScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (!isDuplicateTab) {
-      saveFileState(fileKey, { scrollTop: e.currentTarget.scrollTop });
+    const scrollTop = e.currentTarget.scrollTop;
+    if (!isDuplicateTab && !isRestoringRef.current) {
+      const saveSet = getSaveStateSettings();
+      if (saveSet.docxEnabled) {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+          saveFileState(fileKey, { scrollTop });
+        }, saveSet.docxInterval);
+      }
     }
   };
 

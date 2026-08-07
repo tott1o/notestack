@@ -31,6 +31,78 @@ export interface GlobalSessionState {
   activeTabId?: string;
 }
 
+export interface ViewerSaveStateSettings {
+  mdEnabled: boolean;
+  mdInterval: number; // ms
+  pdfEnabled: boolean;
+  pdfInterval: number; // ms
+  docxEnabled: boolean;
+  docxInterval: number; // ms
+  pptxEnabled: boolean;
+  pptxInterval: number; // ms
+}
+
+const DEFAULT_VIEWER_SAVE_SETTINGS: ViewerSaveStateSettings = {
+  mdEnabled: true,
+  mdInterval: 500,
+  pdfEnabled: true,
+  pdfInterval: 400,
+  docxEnabled: true,
+  docxInterval: 400,
+  pptxEnabled: true,
+  pptxInterval: 400
+};
+
+const VIEWER_SETTINGS_KEY = 'notestack_viewer_save_settings_v1';
+
+export function getSaveStateSettings(): ViewerSaveStateSettings {
+  try {
+    const raw = localStorage.getItem(VIEWER_SETTINGS_KEY);
+    return raw ? { ...DEFAULT_VIEWER_SAVE_SETTINGS, ...JSON.parse(raw) } : DEFAULT_VIEWER_SAVE_SETTINGS;
+  } catch (err) {
+    return DEFAULT_VIEWER_SAVE_SETTINGS;
+  }
+}
+
+export function clearFileTypeStates(extension: 'md' | 'pdf' | 'docx' | 'pptx'): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(FILE_STATE_PREFIX)) {
+        const decodedKey = decodeURIComponent(key.replace(FILE_STATE_PREFIX, '')).toLowerCase();
+        if (
+          (extension === 'md' && (decodedKey.endsWith('.md') || decodedKey.endsWith('.markdown'))) ||
+          (extension === 'pdf' && decodedKey.endsWith('.pdf')) ||
+          (extension === 'docx' && (decodedKey.endsWith('.docx') || decodedKey.endsWith('.doc'))) ||
+          (extension === 'pptx' && (decodedKey.endsWith('.pptx') || decodedKey.endsWith('.ppt')))
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (err) {
+    console.error(`Failed to clear saved states for file type .${extension}:`, err);
+  }
+}
+
+export function saveSaveStateSettings(settings: Partial<ViewerSaveStateSettings>): void {
+  try {
+    const existing = getSaveStateSettings();
+    const updated = { ...existing, ...settings };
+    localStorage.setItem(VIEWER_SETTINGS_KEY, JSON.stringify(updated));
+
+    // Clear cached states if any format toggle was just disabled
+    if (settings.mdEnabled === false) clearFileTypeStates('md');
+    if (settings.pdfEnabled === false) clearFileTypeStates('pdf');
+    if (settings.docxEnabled === false) clearFileTypeStates('docx');
+    if (settings.pptxEnabled === false) clearFileTypeStates('pptx');
+  } catch (err) {
+    console.error("Failed to save viewer state settings:", err);
+  }
+}
+
 const GLOBAL_SESSION_KEY = 'notestack_global_session_v1';
 const FILE_STATE_PREFIX = 'notestack_file_state_';
 

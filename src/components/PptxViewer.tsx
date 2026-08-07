@@ -18,7 +18,7 @@ import {
   PanelLeftOpen
 } from 'lucide-react';
 import type { FileItem, ReadingSettings } from '../types';
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
 import { renderPPTXjsToHtml, type PPTXjsResult } from '../utils/pptxjsRenderer';
 
 interface PptxViewerProps {
@@ -107,7 +107,8 @@ export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
 
         setPptxResult(res);
         const count = res.slideCount;
-        const initialSlide = Math.min(Math.max(1, savedState.currentSlide || 1), count || 1);
+        const saveSet = getSaveStateSettings();
+        const initialSlide = (!isDuplicateTab && saveSet.pptxEnabled && savedState.currentSlide) ? Math.min(Math.max(1, savedState.currentSlide), count || 1) : 1;
         setCurrentSlide(initialSlide);
         setInputSlide(String(initialSlide));
         setLoading(false);
@@ -131,7 +132,13 @@ export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
   useEffect(() => {
     setInputSlide(String(currentSlide));
     if (!isDuplicateTab && pptxResult && pptxResult.slideCount > 0 && currentSlide >= 1) {
-      saveFileState(fileKey, { currentSlide });
+      const saveSet = getSaveStateSettings();
+      if (saveSet.pptxEnabled) {
+        const timer = setTimeout(() => {
+          saveFileState(fileKey, { currentSlide });
+        }, saveSet.pptxInterval);
+        return () => clearTimeout(timer);
+      }
     }
   }, [fileKey, currentSlide, pptxResult, isDuplicateTab]);
 
