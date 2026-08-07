@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { 
   Folder, 
   FolderOpen, 
@@ -76,8 +76,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return session.expandedFolders || {};
   });
 
+  // Debounced localStorage save for expanded folders (prevents lag on rapid toggling)
+  const expandedFoldersTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    saveGlobalSession({ expandedFolders });
+    if (expandedFoldersTimerRef.current) clearTimeout(expandedFoldersTimerRef.current);
+    expandedFoldersTimerRef.current = setTimeout(() => {
+      saveGlobalSession({ expandedFolders });
+    }, 300);
+    return () => {
+      if (expandedFoldersTimerRef.current) clearTimeout(expandedFoldersTimerRef.current);
+    };
   }, [expandedFolders]);
 
   const [showVaultDropdown, setShowVaultDropdown] = useState<boolean>(false);
@@ -132,12 +140,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return { md, code, csv, pdf, image, video, docx, pptx, fav, total };
   }, [mainDir.files]);
 
-  const toggleFolder = (folderId: string, e: React.MouseEvent) => {
+  const toggleFolder = useCallback((folderId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
-  };
+  }, []);
 
-  const handleExpandAll = () => {
+  const handleExpandAll = useCallback(() => {
     const newExpanded: Record<string, boolean> = {};
     const traverse = (items: FileItem[]) => {
       for (const item of items) {
@@ -149,11 +157,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
     traverse(mainDir.files);
     setExpandedFolders(newExpanded);
-  };
+  }, [mainDir.files]);
 
-  const handleCollapseAll = () => {
+  const handleCollapseAll = useCallback(() => {
     setExpandedFolders({});
-  };
+  }, []);
 
   // Vault Removal Confirmation state
   const [vaultToDelete, setVaultToDelete] = useState<{ name: string; path: string } | null>(null);
@@ -178,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     await onRemoveVault(targetPath);
   };
 
-  const sortItems = (items: FileItem[]): FileItem[] => {
+  const sortItems = useCallback((items: FileItem[]): FileItem[] => {
     return [...items].sort((a, b) => {
       if (a.type === 'folder' && b.type !== 'folder') return -1;
       if (a.type !== 'folder' && b.type === 'folder') return 1;
@@ -191,9 +199,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
       return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
     });
-  };
+  }, [sortOrder]);
 
-  const handleContextMenu = (e: React.MouseEvent, item: FileItem) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, item: FileItem) => {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({
@@ -201,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       y: e.clientY,
       item
     });
-  };
+  }, []);
 
   const confirmDelete = () => {
     if (itemToDelete) {
@@ -348,7 +356,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
-  const sortedRootFiles = sortItems(mainDir.files);
+  const sortedRootFiles = useMemo(() => sortItems(mainDir.files), [sortItems, mainDir.files]);
 
   return (
     <aside className="sidebar">
