@@ -4827,6 +4827,134 @@ button, input, select, textarea {
   box-shadow: 0 6px 20px rgba(0,0,0,0.3);
 }
 
+/* ── Minimal & Light Markdown Render for AI Chat Panel ───────────────────────── */
+.ai-message-content {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text-main);
+  word-break: break-word;
+}
+
+.ai-message-content p {
+  margin: 0 0 10px 0;
+  line-height: 1.6;
+}
+
+.ai-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Light & compact headings in AI chat */
+.ai-message-content h1,
+.ai-message-content .study-h1 {
+  font-size: 1.15rem;
+  font-weight: 750;
+  margin: 14px 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-color);
+  background: none;
+  -webkit-text-fill-color: initial;
+  color: var(--text-main);
+}
+
+.ai-message-content h2,
+.ai-message-content .study-h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 12px 0 6px 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.ai-message-content h3,
+.ai-message-content .study-h3,
+.ai-message-content h4,
+.ai-message-content h5,
+.ai-message-content h6 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 10px 0 4px 0;
+  color: var(--text-main);
+}
+
+/* Compact section wrappers */
+.ai-message-content .study-h1-section,
+.ai-message-content .study-h2-section,
+.ai-message-content .study-h3-section {
+  margin: 10px 0 6px 0;
+  padding: 0;
+  border: none;
+}
+
+/* Lightweight & compact code blocks in chat */
+.ai-message-content pre {
+  margin: 10px 0;
+  border-radius: 8px;
+  max-height: 420px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.ai-message-content code:not(pre code) {
+  padding: 1px 5px;
+  font-size: 0.82em;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--primary);
+}
+
+/* Compact lists */
+.ai-message-content ul,
+.ai-message-content ol {
+  margin: 6px 0 10px 0;
+  padding-left: 20px;
+}
+
+.ai-message-content li {
+  margin-bottom: 4px;
+  line-height: 1.55;
+}
+
+/* Compact callouts */
+.ai-message-content .study-callout {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  box-shadow: none;
+}
+
+.ai-message-content .study-callout-header {
+  margin-bottom: 4px;
+  font-size: 0.82rem;
+}
+
+/* Compact tables */
+.ai-message-content table {
+  margin: 10px 0;
+  font-size: 0.82rem;
+  border-radius: 6px;
+}
+
+.ai-message-content th,
+.ai-message-content td {
+  padding: 6px 10px;
+}
+
+/* Compact Mermaid in AI chat */
+.ai-message-content .mermaid-diagram-card {
+  margin: 10px 0;
+  border-radius: 8px;
+}
+
+.ai-message-content .mermaid-container {
+  padding: 12px;
+  min-height: 80px;
+}
+
+
 
 
 

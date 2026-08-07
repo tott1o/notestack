@@ -266,11 +266,33 @@ function getStoredChatHistory(): ChatMessage[] {
 
 function storeChatHistory(messages: ChatMessage[]): void {
   try {
-    // Keep only last 100 messages to avoid storage bloat
-    const trimmed = messages.slice(-100);
-    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(trimmed));
+    // Keep up to 200 messages for extended conversation retention
+    const trimmed = messages.slice(-200);
+    // Sanitize large editAction contents for localStorage safety
+    const safePayload = trimmed.map(m => {
+      if (!m.editAction) return m;
+      return {
+        ...m,
+        editAction: {
+          ...m.editAction,
+          // Retain full content in memory, but cap stored local cache preview if > 40KB
+          newContent: m.editAction.newContent.length > 40000 
+            ? m.editAction.newContent.substring(0, 40000) 
+            : m.editAction.newContent,
+          originalContent: ''
+        }
+      };
+    });
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(safePayload));
   } catch (err) {
-    console.error('Failed to store chat history:', err);
+    try {
+      // Fallback on QuotaExceededError: retain last 30 messages with minimal payloads
+      const minimal = messages.slice(-30).map(m => ({
+        ...m,
+        editAction: m.editAction ? { ...m.editAction, originalContent: '', newContent: '' } : undefined
+      }));
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(minimal));
+    } catch (_) {}
   }
 }
 
@@ -281,7 +303,7 @@ export function maskApiKey(key: string): string {
   return key.substring(0, 4) + '****************';
 }
 
-function truncateContent(content: string, maxChars: number = 8000): string {
+export function truncateContent(content: string, maxChars: number = 150000): string {
   if (!content || content.length <= maxChars) return content;
   return content.substring(0, maxChars) + '\n\n[... content truncated for context window ...]';
 }
@@ -500,7 +522,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             const text = await getFileTextContentForAI(child);
             if (text) {
               const displayPath = child.path ? child.path.replace(/^\//, '').replace(/\//g, ' / ') : child.name;
-              parts.push(`### File in attached folder "${folder.name}": "${child.name}" (${child.type})\nPath: ${displayPath}\n\n${truncateContent(text, 3000)}`);
+              parts.push(`### File in attached folder "${folder.name}": "${child.name}" (${child.type})\nPath: ${displayPath}\n\n${text}`);
             }
           }
         }
@@ -514,7 +536,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       if (text) {
         const displayPath = activeFile.path ? activeFile.path.replace(/^\//, '').replace(/\//g, ' / ') : activeFile.name;
         contextParts.push(
-          `## Currently Active File: "${activeFile.name}" (${activeFile.type})\nPath: ${displayPath}\n\n${truncateContent(text)}`
+          `## Currently Active File: "${activeFile.name}" (${activeFile.type})\nPath: ${displayPath}\n\n${text}`
         );
       }
     }
@@ -535,7 +557,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           if (text) {
             const displayPath = file.path ? file.path.replace(/^\//, '').replace(/\//g, ' / ') : file.name;
             contextParts.push(
-              `## Attached File: "${file.name}" (${file.type})\nPath: ${displayPath}\n\n${truncateContent(text, 4000)}`
+              `## Attached File: "${file.name}" (${file.type})\nPath: ${displayPath}\n\n${text}`
             );
           }
         }
@@ -567,48 +589,34 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     const systemPrompt = `You are NoteStack AI — an intelligent, highly skilled AI coding, scientific, and note-taking assistant embedded in NoteStack.
 
-Response Formatting Rules (MARKDOWN KITCHEN SINK SPECIFICATION):
-You MUST format your responses using rich, comprehensive GitHub/Obsidian-style Markdown:
-1. **Typography & Formatting**:
-   - Use bold (**text**), italics (*text*), strikethrough (~~text~~), highlights (==text==), \`inline code\`, and <kbd>Keyboard Shortcuts</kbd> (e.g. <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd>).
-   - Use subscript H~2~O and superscript E = mc^2^ where appropriate.
-2. **Headings**:
-   - Organize long explanations into logical sections using # H1, ## H2, ### H3, #### H4.
-3. **Blockquotes & Callout Cards**:
-   - Use GitHub-style callouts for key takeaways, advice, and warnings:
-     > [!NOTE]
-     > Helpful background context or note information.
-     
-     > [!TIP]
-     > Useful performance tips, shortcuts, or recommendations.
-     
-     > [!IMPORTANT]
-     > Essential details or requirements.
-     
-     > [!WARNING]
-     > Potential pitfalls or mistakes to avoid.
-     
-     > [!CAUTION]
-     > Advises about potential negative consequences.
-4. **Lists & Task Checklists**:
-   - Use task checklists for action items:
-     - [x] Completed task step
-     - [ ] Pending action item
-5. **Code Blocks & Syntax Highlighting**:
-   - Always wrap code in fenced code blocks with exact language identifiers (\`\`\`typescript, \`\`\`python, \`\`\`css, \`\`\`bash).
-6. **Tables**:
-   - Use aligned Markdown tables (| Feature | Status | Priority |) for comparisons and summaries.
-7. **LaTeX Mathematical Equations**:
-   - Use inline math $e^{i\pi} + 1 = 0$ for equations inside text paragraphs.
-   - Use block display math $$f(x) = \\frac{1}{\\sigma \\sqrt{2\\pi}} e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}$$ for equations on standalone lines.
-8. **Mermaid Diagrams & Graphs**:
-   - Use \`\`\`mermaid blocks for flowcharts, sequence diagrams, and pie charts (e.g., \`\`\`mermaid\\ngraph TD\\n A[Start]-->B[Process]\\n\`\`\`).
-9. **Interactive Accordions & Footnotes**:
-   - Use <details><summary><b>Click to expand</b></summary>content</details> for expandable sections.
-   - Use footnotes [^1] and [^1]: details for references.
+SMART RESPONSE & UNLIMITED FILE/NOTE WRITING DIRECTIVES:
+1. **Lightweight Chat Responses & Direct Note Action Cards**:
+   - Keep chat text concise, clear, and helpful.
+   - When asked to write, generate, summarize, or edit long study notes, documents, essays, guides, or code files, DO NOT dump massive text walls directly into the chat bubble text!
+   - Instead, provide a brief 1-3 sentence summary in chat text, and put the full document/note content cleanly inside a file directive block so NoteStack creates/edits the file directly:
+     <<<CREATE_FILE: NoteTitle.md>>>
+     (full comprehensive note/document content without any length truncation or omissions)
+     <<<END_CREATE>>>
+     or
+     <<<EDIT_FILE: ActiveNote.md>>>
+     (full updated note content)
+     <<<END_EDIT>>>
+   - NoteStack automatically parses file directives into a 1-click "Save & Open in Note Editor" card for the user!
 
-Code Editing Directives:
-- For TARGETED EDITS (modifying specific lines without replacing the rest of the file), use:
+2. **Unlimited Generation Content Length**:
+   - Always generate complete, thorough, fully detailed notes, guides, and files without skipping sections or truncating content.
+
+3. **Minimal Clean Markdown Rules**:
+   - Use clean, minimal Markdown formatting suitable for sidebar chat:
+     - Clear section headers (## H2, ### H3)
+     - Clean task checklists (- [ ] task)
+     - Fenced code blocks (\`\`\`typescript, \`\`\`python) with exact language tags
+     - Clean LaTeX inline ($e=mc^2$) and display math ($$f(x)...$$)
+     - Concise GitHub-style callouts (> [!NOTE], > [!TIP], > [!WARNING])
+     - Mermaid diagrams (\`\`\`mermaid) when helpful
+
+Code & Note Directives:
+- For TARGETED EDITS (modifying specific lines without replacing the rest of the file):
   <<<TARGET_EDIT: filename.ext>>>
   <<<<<<< SEARCH
   [exact existing code/lines to replace]
@@ -616,15 +624,15 @@ Code Editing Directives:
   [new replacement code/lines]
   >>>>>>> REPLACE
   <<<END_TARGET_EDIT>>>
-- For REPLACING an entire file completely:
+- For REPLACING an entire note/file completely:
   <<<EDIT_FILE: filename.ext>>>
   (complete new file content)
   <<<END_EDIT>>>
-- For CREATING a new file:
+- For CREATING a new note/file:
   <<<CREATE_FILE: filename.ext>>>
   (new file content)
   <<<END_CREATE>>>
-- For APPENDING to a file:
+- For APPENDING to a note/file:
   <<<APPEND_FILE: filename.ext>>>
   (content to append)
   <<<END_APPEND>>>
@@ -941,15 +949,26 @@ ${context}`;
       // Check for edit actions in the response
       const edits = parseEditActions(responseText);
       let cleanedResponse = responseText
-        .replace(/<<<TARGET_EDIT:\s*.+?>>>\n[\s\S]*?<<<END_TARGET_EDIT>>>/g, '')
-        .replace(/<<<EDIT_FILE:\s*.+?>>>\n[\s\S]*?<<<END_EDIT>>>/g, '')
-        .replace(/<<<APPEND_FILE:\s*.+?>>>\n[\s\S]*?<<<END_APPEND>>>/g, '')
+        .replace(/<<<TARGET_EDIT:\s*.+?>>>[\s\S]*?(?:<<<END_TARGET_EDIT>>>|<<<END_EDIT>>>|$)/gi, '')
+        .replace(/<<<EDIT_FILE:\s*.+?>>>[\s\S]*?(?:<<<END_EDIT>>>|<<<END_CREATE>>>|$)/gi, '')
+        .replace(/<<<CREATE_FILE:\s*.+?>>>[\s\S]*?(?:<<<END_CREATE>>>|<<<END_EDIT>>>|$)/gi, '')
+        .replace(/<<<APPEND_FILE:\s*.+?>>>[\s\S]*?(?:<<<END_APPEND>>>|$)/gi, '')
         .trim();
+
+      // If an action card is generated, ensure cleanedResponse contains only a sleek concise summary
+      if (edits.length > 0) {
+        const cleanName = edits[0].fileName.split('/').pop() || edits[0].fileName;
+        if (!cleanedResponse || cleanedResponse.includes('```')) {
+          cleanedResponse = edits[0].type === 'create' 
+            ? `Generated new document **${cleanName}**. Click below to save and open in note editor:`
+            : `Prepared edits for **${cleanName}**. Click below to review and apply:`;
+        }
+      }
 
       const assistantMsg: ChatMessage = {
         id: generateId(),
         role: 'assistant',
-        content: cleanedResponse || 'VS Code Copilot style targeted line edit prepared. Review below:',
+        content: cleanedResponse || 'Prepared document action below:',
         timestamp: Date.now()
       };
 

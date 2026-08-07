@@ -440,6 +440,114 @@ ipcMain.handle('fs:renameItem', async (_, { oldPath, newName }) => {
   }
 });
 
+const os = require('os');
+const http = require('http');
+
+let embeddedServer = null;
+let embeddedServerInfo = {
+  active: false,
+  port: 3000,
+  localUrl: 'http://localhost:3000',
+  networkUrl: null
+};
+
+function getLocalIpAddress() {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const devName in interfaces) {
+      const iface = interfaces[devName];
+      for (let i = 0; i < iface.length; i++) {
+        const alias = iface[i];
+        if (alias.family === 'IPv4' && !alias.internal && alias.address !== '127.0.0.1') {
+          return alias.address;
+        }
+      }
+    }
+  } catch (e) {}
+  return 'localhost';
+}
+
+function startEmbeddedServer(port = 3000) {
+  if (embeddedServer) return embeddedServerInfo;
+
+  const distDir = path.join(__dirname, '../dist');
+  const mimeTypes = {
+    '.html': 'text/html',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.wasm': 'application/wasm'
+  };
+
+  try {
+    embeddedServer = http.createServer((req, res) => {
+      let reqUrl = req.url.split('?')[0];
+      let filePath = path.join(distDir, reqUrl === '/' ? 'index.html' : reqUrl);
+
+      if (!fs.existsSync(filePath) || (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory())) {
+        filePath = path.join(distDir, 'index.html');
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+      fs.readFile(filePath, (err, content) => {
+        if (err) {
+          res.writeHead(500);
+          res.end('Server Error');
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(content);
+      });
+    });
+
+    embeddedServer.on('error', (e) => {
+      if (e.code === 'EADDRINUSE' && port < 3020) {
+        console.log(`Port ${port} in use, retrying embedded server on ${port + 1}...`);
+        embeddedServer = null;
+        startEmbeddedServer(port + 1);
+      }
+    });
+
+    embeddedServer.listen(port, '0.0.0.0', () => {
+      const ip = getLocalIpAddress();
+      embeddedServerInfo = {
+        active: true,
+        port: port,
+        localUrl: `http://localhost:${port}`,
+        networkUrl: `http://${ip}:${port}`
+      };
+      console.log(`\n🚀 Embedded Electron Live Server running!`);
+      console.log(`➜ Local:   ${embeddedServerInfo.localUrl}`);
+      console.log(`➜ Network: ${embeddedServerInfo.networkUrl}\n`);
+    });
+  } catch (err) {
+    console.error('Failed to start embedded server:', err);
+  }
+
+  return embeddedServerInfo;
+}
+
+ipcMain.handle('server:getStatus', async () => {
+  if (!embeddedServerInfo.active) {
+    startEmbeddedServer();
+  }
+  return embeddedServerInfo;
+});
+
 ipcMain.handle('config:saveVaultList', async (_, vaults) => {
   saveConfig({ savedVaults: vaults });
   return true;
@@ -458,6 +566,7 @@ ipcMain.handle('config:removeSavedVault', async (_, vaultPath) => {
 
 app.whenReady().then(() => {
   createWindow();
+  startEmbeddedServer();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

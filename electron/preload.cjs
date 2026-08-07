@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSavedDirectory: () => ipcRenderer.invoke('config:getSavedDirectory'),
   saveVaultList: (vaults) => ipcRenderer.invoke('config:saveVaultList', vaults),
   removeSavedVault: (vaultPath) => ipcRenderer.invoke('config:removeSavedVault', vaultPath),
+  getServerStatus: () => ipcRenderer.invoke('server:getStatus'),
   onVaultUpdated: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on('fs:vault-updated', listener);

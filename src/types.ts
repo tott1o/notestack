@@ -100,6 +100,7 @@ declare global {
       openExternalUrl: (url: string) => Promise<boolean>;
       deleteItem: (itemPath: string) => Promise<boolean>;
       renameItem: (oldPath: string, newName: string) => Promise<{ success: boolean; newPath?: string; newName?: string; error?: string }>;
+      getServerStatus?: () => Promise<{ active: boolean; port: number; localUrl: string; networkUrl: string | null }>;
       onVaultUpdated?: (callback: (data: any) => void) => () => void;
       onFileChanged?: (callback: (data: { fullPath: string; content: string }) => void) => () => void;
     };
