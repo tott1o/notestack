@@ -22,7 +22,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import type { FileItem } from '../types';
-import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
+import { getFileState, saveFileState, getSaveStateSettings, type FileState } from '../utils/stateMemory';
 
 interface DocxViewerProps {
   file: FileItem;
@@ -98,7 +98,7 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({ file }) => {
     if (!loading && rawHtml) {
       isRestoringRef.current = true;
       const saveSet = getSaveStateSettings();
-      const saved = (!isDuplicateTab && saveSet.docxEnabled) ? getFileState(fileKey) : {};
+      const saved: FileState = (!isDuplicateTab && saveSet.docxEnabled) ? getFileState(fileKey) : {};
       if (saved.scrollTop && scrollContainerRef.current) {
         const targetScroll = saved.scrollTop;
         scrollContainerRef.current.scrollTop = targetScroll;

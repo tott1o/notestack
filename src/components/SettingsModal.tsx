@@ -6,17 +6,21 @@ import {
   Sliders, 
   Bot, 
   Key, 
-  FileText, 
-  BookOpen, 
-  Presentation, 
-  File, 
   Check, 
   Eye,
   EyeOff,
   ArrowLeft
 } from 'lucide-react';
 import type { ReadingSettings } from '../types';
-import { getSaveStateSettings, saveSaveStateSettings, clearAllFileStates, type ViewerSaveStateSettings } from '../utils/stateMemory';
+import { 
+  getSaveStateSettings, 
+  saveSaveStateSettings, 
+  clearAllFileStates, 
+  clearFileTypeStates,
+  getStorageMetrics,
+  exportStateMemoryBackup,
+  type ViewerSaveStateSettings
+} from '../utils/stateMemory';
 import { PROVIDER_CONFIGS, DEFAULT_MODELS, type AIProvider, maskApiKey } from './AIChatPanel';
 
 interface SettingsModalProps {
@@ -438,135 +442,336 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* ────────────────── VIEWER MEMORY & STATE SAVE TAB ────────────────── */}
             {activeTab === 'viewers' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                
+                {/* Header & Strategy Overview */}
                 <div>
-                  <h4 style={{ margin: '0 0 4px 0', fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                    Close-Triggered Position Memory
+                  <h4 style={{ margin: '0 0 6px 0', fontSize: '1.08rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.01em' }}>
+                    State Memory & Persistence Center
                   </h4>
-                  <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    State saving is completely <strong>inactive</strong> during reading and scrolling for 0 CPU overhead. Position memory (scroll position, PDF page, slide number) is saved <strong>only when you close a tab (✕)</strong>.
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                    Configure how NoteStack remembers file scroll positions, PDF pages, slide numbers, zoom levels, and media timestamps.
                   </p>
                 </div>
 
-                {/* Clear All Memory Button */}
+                {/* 1. Persistence Strategy Selection Cards */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    1. Select Persistence Strategy
+                  </span>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                    {[
+                      {
+                        id: 'on_close_only' as const,
+                        title: 'Save on Close Only',
+                        badge: 'Recommended for Speed',
+                        desc: '0 CPU background overhead while scrolling. State saves ONLY when closing tabs (✕).'
+                      },
+                      {
+                        id: 'debounced_auto' as const,
+                        title: 'Debounced Auto-Save',
+                        badge: 'Crash Resilient',
+                        desc: 'Background auto-save after user stops scrolling or editing for a configurable pause.'
+                      },
+                      {
+                        id: 'hybrid' as const,
+                        title: 'Hybrid Protection',
+                        badge: 'Maximum Safety',
+                        desc: 'Debounced background auto-save + instant flush on tab close and app window exit.'
+                      }
+                    ].map(card => {
+                      const isSelected = viewerSettings.strategy === card.id;
+                      return (
+                        <div
+                          key={card.id}
+                          onClick={() => handleUpdateViewerSetting('strategy', card.id)}
+                          style={{
+                            background: isSelected ? 'var(--primary-light)' : 'var(--bg-surface-elevated)',
+                            border: `2px solid ${isSelected ? 'var(--primary)' : 'var(--border-color)'}`,
+                            borderRadius: 12,
+                            padding: 14,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between'
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                              <span style={{ fontSize: '0.88rem', fontWeight: 800, color: isSelected ? 'var(--primary)' : 'var(--text-main)' }}>
+                                {card.title}
+                              </span>
+                              {isSelected && <Check size={16} color="var(--primary)" />}
+                            </div>
+                            <span style={{
+                              display: 'inline-block',
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: isSelected ? 'var(--primary)' : 'var(--bg-surface)',
+                              color: isSelected ? '#ffffff' : 'var(--text-muted)',
+                              marginBottom: 8
+                            }}>
+                              {card.badge}
+                            </span>
+                            <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                              {card.desc}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Auto-Save Interval & LRU Eviction Settings */}
                 <div style={{
                   background: 'var(--bg-surface-elevated)',
                   border: '1px solid var(--border-color)',
                   borderRadius: 12,
-                  padding: 16,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
+                  padding: 18,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 20
                 }}>
+                  {/* Debounce Interval Picker */}
                   <div>
-                    <h5 style={{ margin: '0 0 2px 0', fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                      Clear All Saved Position Memory
-                    </h5>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      Reset saved scroll positions, PDF pages, and slide numbers for all documents.
+                    <label style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)', display: 'block', marginBottom: 4 }}>
+                      Auto-Save Debounce Interval
+                    </label>
+                    <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', display: 'block', marginBottom: 10 }}>
+                      Pause duration before writing background state changes
                     </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      clearAllFileStates();
-                      showNotice('Cleared all saved position states!');
-                    }}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      background: 'rgba(239, 68, 68, 0.15)',
-                      color: '#ef4444',
-                      border: '1px solid rgba(239, 68, 68, 0.3)',
-                      fontWeight: 700,
-                      fontSize: '0.82rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    Clear Memory
-                  </button>
-                </div>
-
-                {/* Individual Viewer Cards */}
-                {[
-                  {
-                    id: 'md' as const,
-                    label: 'Markdown (.md) Editor & Viewer',
-                    icon: FileText,
-                    enabledKey: 'mdEnabled' as const,
-                    desc: 'Saves scroll position and active line only when tab is closed.'
-                  },
-                  {
-                    id: 'pdf' as const,
-                    label: 'PDF Document Reader',
-                    icon: BookOpen,
-                    enabledKey: 'pdfEnabled' as const,
-                    desc: 'Saves active page number and scroll position only when tab is closed.'
-                  },
-                  {
-                    id: 'docx' as const,
-                    label: 'Word (.docx) Document Reader',
-                    icon: File,
-                    enabledKey: 'docxEnabled' as const,
-                    desc: 'Saves scroll position only when tab is closed.'
-                  },
-                  {
-                    id: 'pptx' as const,
-                    label: 'PowerPoint (.pptx) Slide Viewer',
-                    icon: Presentation,
-                    enabledKey: 'pptxEnabled' as const,
-                    desc: 'Saves active slide index only when tab is closed.'
-                  }
-                ].map(v => {
-                  const IconComponent = v.icon;
-                  const isEnabled = viewerSettings[v.enabledKey];
-
-                  return (
-                    <div 
-                      key={v.id}
+                    <select
+                      value={viewerSettings.debounceDelayMs || 1500}
+                      disabled={viewerSettings.strategy === 'on_close_only'}
+                      onChange={e => handleUpdateViewerSetting('debounceDelayMs', parseInt(e.target.value, 10))}
                       style={{
-                        background: 'var(--bg-surface-elevated)',
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        background: 'var(--bg-surface)',
+                        color: viewerSettings.strategy === 'on_close_only' ? 'var(--text-dim)' : 'var(--text-main)',
                         border: '1px solid var(--border-color)',
-                        borderRadius: 12,
-                        padding: 18
+                        fontSize: '0.84rem',
+                        fontWeight: 600,
+                        opacity: viewerSettings.strategy === 'on_close_only' ? 0.5 : 1
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <div style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 8,
-                            background: 'rgba(99, 102, 241, 0.15)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'var(--primary)'
-                          }}>
-                            <IconComponent size={20} />
-                          </div>
-                          <div>
-                            <h5 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                              {v.label}
-                            </h5>
-                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{v.desc}</span>
-                          </div>
-                        </div>
+                      <option value={500}>500 ms (High Frequency)</option>
+                      <option value={1000}>1000 ms (1 second)</option>
+                      <option value={1500}>1500 ms (1.5 seconds - Recommended)</option>
+                      <option value={3000}>3000 ms (3 seconds)</option>
+                    </select>
+                  </div>
 
-                        {/* Enable Toggle Switch */}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                          <input 
-                            type="checkbox"
-                            checked={isEnabled}
-                            onChange={e => handleUpdateViewerSetting(v.enabledKey, e.target.checked)}
-                          />
-                          <span style={{ fontSize: '0.84rem', fontWeight: 700, color: isEnabled ? '#4ade80' : 'var(--text-muted)' }}>
-                            {isEnabled ? 'Save on Close ON' : 'OFF'}
+                  {/* LRU Eviction Limit */}
+                  <div>
+                    <label style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)', display: 'block', marginBottom: 4 }}>
+                      LRU Eviction Capacity Limit
+                    </label>
+                    <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', display: 'block', marginBottom: 10 }}>
+                      Max files to remember before auto-pruning oldest states
+                    </span>
+                    <select
+                      value={viewerSettings.maxFileStates || 250}
+                      onChange={e => handleUpdateViewerSetting('maxFileStates', parseInt(e.target.value, 10))}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        background: 'var(--bg-surface)',
+                        color: 'var(--text-main)',
+                        border: '1px solid var(--border-color)',
+                        fontSize: '0.84rem',
+                        fontWeight: 600
+                      }}
+                    >
+                      <option value={100}>100 Documents</option>
+                      <option value={250}>250 Documents (Recommended)</option>
+                      <option value={500}>500 Documents</option>
+                      <option value={1000}>1000 Documents</option>
+                      <option value={0}>Unlimited (No Pruning)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 3. Real-Time Storage Diagnostics & Metrics Dashboard */}
+                {(() => {
+                  const metrics = getStorageMetrics();
+                  return (
+                    <div style={{
+                      background: 'var(--bg-surface-elevated)',
+                      border: '1px solid var(--border-highlight)',
+                      borderRadius: 12,
+                      padding: 18
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                        <div>
+                          <h5 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                            Storage Memory Dashboard
+                          </h5>
+                          <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                            {metrics.totalFilesSaved} files remembered • Estimated size: <strong>{metrics.formattedSize}</strong>
                           </span>
-                        </label>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            onClick={() => {
+                              const jsonStr = exportStateMemoryBackup();
+                              const blob = new Blob([jsonStr], { type: 'application/json' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `NoteStack-State-Memory-Backup-${new Date().toISOString().slice(0,10)}.json`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                              showNotice('Exported state memory backup!');
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              background: 'var(--bg-surface)',
+                              color: 'var(--text-main)',
+                              border: '1px solid var(--border-color)',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Export Backup
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              clearAllFileStates();
+                              showNotice('Cleared all saved position states!');
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              color: '#ef4444',
+                              border: '1px solid rgba(239, 68, 68, 0.3)',
+                              fontSize: '0.78rem',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Clear All Memory
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Format Memory Counters Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                        {[
+                          { key: 'md' as const, label: 'Markdown', count: metrics.countByFormat.md, extKey: 'mdEnabled' as const },
+                          { key: 'pdf' as const, label: 'PDF Docs', count: metrics.countByFormat.pdf, extKey: 'pdfEnabled' as const },
+                          { key: 'docx' as const, label: 'Word (.docx)', count: metrics.countByFormat.docx, extKey: 'docxEnabled' as const },
+                          { key: 'pptx' as const, label: 'PPTX Slides', count: metrics.countByFormat.pptx, extKey: 'pptxEnabled' as const },
+                          { key: 'code' as const, label: 'Code Files', count: metrics.countByFormat.code, extKey: 'codeEnabled' as const },
+                          { key: 'csv' as const, label: 'CSV Tables', count: metrics.countByFormat.csv, extKey: 'csvEnabled' as const },
+                          { key: 'media' as const, label: 'Media Files', count: metrics.countByFormat.media, extKey: 'mediaEnabled' as const }
+                        ].map(f => (
+                          <div
+                            key={f.key}
+                            style={{
+                              background: 'var(--bg-surface)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: 8,
+                              padding: '8px 10px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between'
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-main)', display: 'block' }}>
+                                {f.label}
+                              </span>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                {f.count} saved
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                clearFileTypeStates(f.key);
+                                showNotice(`Cleared .${f.key} saved positions!`);
+                              }}
+                              disabled={f.count === 0}
+                              style={{
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                background: 'transparent',
+                                color: f.count > 0 ? '#ef4444' : 'var(--text-dim)',
+                                border: '1px solid var(--border-color)',
+                                fontSize: '0.68rem',
+                                cursor: f.count > 0 ? 'pointer' : 'default',
+                                opacity: f.count > 0 ? 1 : 0.4
+                              }}
+                              title={`Clear all .${f.key} saved positions`}
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
-                })}
+                })()}
+
+                {/* 4. Format Toggles & Per-Detail Switches */}
+                <div style={{
+                  background: 'var(--bg-surface-elevated)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 12,
+                  padding: 18
+                }}>
+                  <h5 style={{ margin: '0 0 12px 0', fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                    Granular Detail Memory Options
+                  </h5>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                      <input
+                        type="checkbox"
+                        checked={viewerSettings.saveScrollPosition ?? true}
+                        onChange={e => handleUpdateViewerSetting('saveScrollPosition', e.target.checked)}
+                      />
+                      <span>Remember Scroll Position (Offset)</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                      <input
+                        type="checkbox"
+                        checked={viewerSettings.savePageSlide ?? true}
+                        onChange={e => handleUpdateViewerSetting('savePageSlide', e.target.checked)}
+                      />
+                      <span>Remember PDF Page & Slide Index</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                      <input
+                        type="checkbox"
+                        checked={viewerSettings.saveZoomRotation ?? true}
+                        onChange={e => handleUpdateViewerSetting('saveZoomRotation', e.target.checked)}
+                      />
+                      <span>Remember Document Zoom & Image Rotation</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                      <input
+                        type="checkbox"
+                        checked={viewerSettings.saveMediaTime ?? true}
+                        onChange={e => handleUpdateViewerSetting('saveMediaTime', e.target.checked)}
+                      />
+                      <span>Remember Video / Audio Playback Time</span>
+                    </label>
+                  </div>
+                </div>
 
               </div>
             )}

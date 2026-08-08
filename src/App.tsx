@@ -33,7 +33,7 @@ import {
   removeVaultFromSavedList,
   getFileType
 } from './utils/fileSystem';
-import { getGlobalSession, saveGlobalSession } from './utils/stateMemory';
+import { getGlobalSession, saveGlobalSession, flushPendingStateSaves } from './utils/stateMemory';
 
 export function App() {
   const [mainDir, setMainDir] = useState<MainDirectory>(EMPTY_MAIN_DIRECTORY);
@@ -63,6 +63,43 @@ export function App() {
       console.error("Failed to save AI panel open state:", err);
     }
   }, [isAIChatOpen]);
+
+  // Obsidian-style: toggle .is-scrolling on body during active scroll to disable expensive CSS effects
+  useEffect(() => {
+    let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleGlobalScroll = () => {
+      if (!document.body.classList.contains('is-scrolling')) {
+        document.body.classList.add('is-scrolling');
+      }
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        document.body.classList.remove('is-scrolling');
+      }, 150);
+    };
+    document.addEventListener('scroll', handleGlobalScroll, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('scroll', handleGlobalScroll, { capture: true });
+      if (scrollTimer) clearTimeout(scrollTimer);
+    };
+  }, []);
+
+  // Flush pending debounced state saves to storage before window unload or visibility hide
+  useEffect(() => {
+    const handleUnloadFlush = () => {
+      flushPendingStateSaves();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingStateSaves();
+      }
+    };
+    window.addEventListener('beforeunload', handleUnloadFlush);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnloadFlush);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
   
   // Sidebar Resizing & Visibility State
   const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);

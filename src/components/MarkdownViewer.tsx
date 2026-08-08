@@ -37,7 +37,7 @@ import {
   extractTableOfContents, 
   getTaskProgress 
 } from '../utils/markdownUtils';
-import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
+import { getFileState, saveFileState, debouncedSaveFileState, getSaveStateSettings, type FileState } from '../utils/stateMemory';
 
 interface MarkdownViewerProps {
   file: FileItem;
@@ -101,7 +101,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
     // Duplicate tabs do not load or save persistent state, and respect save state toggle
     const saveSet = getSaveStateSettings();
-    const saved = (!isDuplicateTab && saveSet.mdEnabled) ? getFileState(fileKey) : {};
+    const saved: FileState = (!isDuplicateTab && saveSet.mdEnabled) ? getFileState(fileKey) : {};
     const targetScrollTop = saved.scrollTop;
 
     if (targetScrollTop && targetScrollTop > 0) {
@@ -169,6 +169,10 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
     if (!isRestoringRef.current && !isDuplicateTab) {
       currentScrollTopRef.current = scrollTop;
+      const saveSet = getSaveStateSettings();
+      if (saveSet.strategy !== 'on_close_only') {
+        debouncedSaveFileState(fileKey, { scrollTop: scrollTop });
+      }
     }
 
     // Sync preview scroll position proportionally in split mode

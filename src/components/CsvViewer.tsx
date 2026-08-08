@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Table, Edit3, Eye, Search, Download, Check, Save, ExternalLink, Database, AlertCircle } from 'lucide-react';
 import type { FileItem } from '../types';
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, type FileState } from '../utils/stateMemory';
 
 interface CsvViewerProps {
   file: FileItem;
@@ -15,11 +15,11 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
   const [csvText, setCsvText] = useState<string>(file.content || '');
   const [loadAllRows, setLoadAllRows] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'grid' | 'raw'>(() => {
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    const saved: FileState = isDuplicateTab ? {} : getFileState(fileKey);
     return (saved.viewMode as 'grid' | 'raw') || 'grid';
   });
   const [searchQuery, setSearchQuery] = useState<string>(() => {
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    const saved: FileState = isDuplicateTab ? {} : getFileState(fileKey);
     return saved.searchQuery || '';
   });
   const [isSaved, setIsSaved] = useState<boolean>(true);
@@ -33,7 +33,7 @@ export const CsvViewer: React.FC<CsvViewerProps> = ({ file, onContentChange }) =
     setIsSaved(true);
     setLoadAllRows(false);
 
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    const saved: FileState = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.searchQuery) setSearchQuery(saved.searchQuery);
     if (saved.viewMode) setViewMode(saved.viewMode as 'grid' | 'raw');
 

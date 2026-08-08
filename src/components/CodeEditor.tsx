@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 're
 import { Code2, Copy, Check, Save } from 'lucide-react';
 import type { FileItem } from '../types';
 
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, type FileState } from '../utils/stateMemory';
 import { highlightCodeSyntax } from '../utils/syntaxHighlighter';
 
 interface CodeEditorProps {
@@ -33,7 +33,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ file, onContentChange })
     setCode(file.content || '');
     setIsSaved(true);
 
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    const saved: FileState = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.scrollTop) {
       if (textareaRef.current) textareaRef.current.scrollTop = saved.scrollTop;
       if (preRef.current) preRef.current.scrollTop = saved.scrollTop;

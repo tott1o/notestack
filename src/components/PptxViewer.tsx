@@ -18,7 +18,7 @@ import {
   PanelLeftOpen
 } from 'lucide-react';
 import type { FileItem, ReadingSettings } from '../types';
-import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
+import { getFileState, saveFileState, getSaveStateSettings, type FileState } from '../utils/stateMemory';
 import { renderPPTXjsToHtml, type PPTXjsResult } from '../utils/pptxjsRenderer';
 
 interface PptxViewerProps {
@@ -29,7 +29,7 @@ interface PptxViewerProps {
 export const PptxViewer: React.FC<PptxViewerProps> = ({ file }) => {
   const isDuplicateTab = Boolean(file.isDuplicate || (file.tabId && file.tabId.includes('_dup_')));
   const fileKey = file.fullPath || file.id;
-  const savedState = useMemo(() => (isDuplicateTab ? {} : getFileState(fileKey)), [fileKey, isDuplicateTab]);
+  const savedState: FileState = useMemo(() => (isDuplicateTab ? {} : getFileState(fileKey)), [fileKey, isDuplicateTab]);
 
   const [pptxResult, setPptxResult] = useState<PPTXjsResult | null>(null);
   const [currentSlide, setCurrentSlide] = useState<number>(savedState.currentSlide ? savedState.currentSlide : 1);

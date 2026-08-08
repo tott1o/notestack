@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0';
+const HOST = '127.0.0.1';
 const DIST_DIR = path.join(__dirname, 'dist');
 
 const MIME_TYPES = {

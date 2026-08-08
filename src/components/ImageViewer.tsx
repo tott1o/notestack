@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { ZoomIn, ZoomOut, RotateCw, Maximize, Image as ImageIcon } from 'lucide-react';
 import type { FileItem } from '../types';
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, type FileState } from '../utils/stateMemory';
 
 interface ImageViewerProps {
   file: FileItem;
@@ -17,7 +17,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ file }) => {
 
   // Restore saved image zoom & rotation on load
   useLayoutEffect(() => {
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    const saved: FileState = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.zoom) setZoom(saved.zoom);
     else setZoom(100);
 

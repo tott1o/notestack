@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { FileItem } from '../types';
-import { getFileState, saveFileState, getSaveStateSettings } from '../utils/stateMemory';
+import { getFileState, saveFileState, debouncedSaveFileState, getSaveStateSettings, type FileState } from '../utils/stateMemory';
 
 // Configure pdfjs worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -270,7 +270,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
   // Jump to saved page or scroll position when numPages & container are ready
   useLayoutEffect(() => {
     if (engineMode === 'canvas' && !loading && numPages > 0 && containerRef.current) {
-      const saved = isDuplicateTab ? {} : getFileState(fileKey);
+      const saved: FileState = isDuplicateTab ? {} : getFileState(fileKey);
       const targetPage = saved.pageNumber || 1;
       const savedScrollTop = saved.scrollTop;
 
@@ -343,9 +343,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
       setInputPage(String(activePage));
     }
 
-    if (activePage !== pageNumber) {
-      setPageNumber(activePage);
-      setInputPage(String(activePage));
+    currentScrollTopRef.current = scrollTop;
+    currentPageNumberRef.current = activePage;
+
+    const saveSet = getSaveStateSettings();
+    if (saveSet.strategy !== 'on_close_only' && !isDuplicateTab) {
+      debouncedSaveFileState(fileKey, { scrollTop, pageNumber: activePage });
     }
 
     currentPageNumberRef.current = activePage;

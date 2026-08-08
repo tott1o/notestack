@@ -15,7 +15,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import type { FileItem } from '../types';
-import { getFileState, saveFileState } from '../utils/stateMemory';
+import { getFileState, saveFileState, type FileState } from '../utils/stateMemory';
 
 interface VideoViewerProps {
   file: FileItem;
@@ -60,7 +60,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({ file, onExportNotesToM
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
     setDuration(videoRef.current.duration);
-    const saved = isDuplicateTab ? {} : getFileState(fileKey);
+    const saved: FileState = isDuplicateTab ? {} : getFileState(fileKey);
     if (saved.currentTime && saved.currentTime < videoRef.current.duration) {
       videoRef.current.currentTime = saved.currentTime;
       setCurrentTime(saved.currentTime);

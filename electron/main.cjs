@@ -2,6 +2,15 @@ const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('ele
 const path = require('path');
 const fs = require('fs');
 
+// Enable GPU Hardware Acceleration & Smooth 60FPS Rendering Flags
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization,UseSkiaRenderer,TouchpadAndScrollbarScrollLatching');
+app.commandLine.appendSwitch('enable-smooth-scrolling');
+app.commandLine.appendSwitch('high-dpi-support', '1');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
+
 let mainWindow;
 const configPath = path.join(app.getPath('userData'), 'notestack-config.json');
 
@@ -154,7 +163,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false
+      webSecurity: false,
+      backgroundThrottling: false,
+      v8CacheOptions: 'bypassHeatCheck'
     }
   });
 
@@ -653,17 +664,15 @@ function startEmbeddedServer(port = 3000) {
       }
     });
 
-    embeddedServer.listen(port, '0.0.0.0', () => {
-      const ip = getLocalIpAddress();
+    embeddedServer.listen(port, '127.0.0.1', () => {
       embeddedServerInfo = {
         active: true,
         port: port,
-        localUrl: `http://localhost:${port}`,
-        networkUrl: `http://${ip}:${port}`
+        localUrl: `http://127.0.0.1:${port}`,
+        networkUrl: `http://127.0.0.1:${port} (Local Only)`
       };
-      console.log(`\n🚀 NoteStack Live Embedded Server Active!`);
-      console.log(`➜ Local access:   ${embeddedServerInfo.localUrl}`);
-      console.log(`➜ Network access: ${embeddedServerInfo.networkUrl}\n`);
+      console.log(`\n🔒 NoteStack Secure Local Server Active!`);
+      console.log(`➜ Loopback access (Protected): http://127.0.0.1:${port}/\n`);
     });
   } catch (err) {
     console.error('Failed to start embedded server:', err);
